@@ -1,6 +1,6 @@
 // 簡單的離線快取：App 本體 + Firebase SDK 都用 stale-while-revalidate
 // 改了程式後把 VERSION 數字加一，舊快取會被清掉。
-const VERSION = "wc-v6";
+const VERSION = "wc-v7";
 const SHELL = [
   "./",
   "./index.html",
@@ -9,7 +9,7 @@ const SHELL = [
   "./pwa.js",
   "./lib.js",
   "./firebase-config.js",
-  "./manifest.webmanifest",
+  "./manifest.json",
   "./icons/icon.svg",
   "./icons/icon-192.png",
   "./icons/icon-512.png",
