@@ -3,6 +3,7 @@
   "short_name": "字卡",
   "description": "簡單無干擾的單字卡",
   "lang": "zh-TW",
+  "id": "./",
   "start_url": "./",
   "scope": "./",
   "display": "standalone",

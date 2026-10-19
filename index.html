@@ -132,6 +132,10 @@ resilient  She is resilient.
     <button class="btn" id="s-test">試聽</button>
     <p class="muted small">語言、語音、語速等設定只存在這台裝置（各裝置可用的語音不同）。</p>
     <hr>
+    <button class="btn primary" id="s-install" hidden>安裝到手機</button>
+    <button class="btn" id="s-diag">檢查安裝狀態</button>
+    <pre id="s-diag-out" hidden></pre>
+    <hr>
     <p class="muted" id="s-account"></p>
     <button class="btn" id="s-logout">登出</button>
   </section>
@@ -141,6 +145,7 @@ resilient  She is resilient.
     <button id="toast-act" hidden></button>
   </div>
 
+  <script src="pwa.js" defer></script>
   <script type="module" src="app.js"></script>
 </body>
 </html>

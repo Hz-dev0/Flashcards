@@ -462,6 +462,4 @@ function init() {
 /* ------------------------------------------------------------------ */
 /* PWA                                                                  */
 /* ------------------------------------------------------------------ */
-if ("serviceWorker" in navigator) {
-  window.addEventListener("load", () => navigator.serviceWorker.register("./sw.js").catch(console.warn));
-}
+// Service Worker 註冊與安裝按鈕在 pwa.js

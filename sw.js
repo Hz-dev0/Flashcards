@@ -1,11 +1,12 @@
 // 簡單的離線快取：App 本體 + Firebase SDK 都用 stale-while-revalidate
 // 改了程式後把 VERSION 數字加一，舊快取會被清掉。
-const VERSION = "wc-v4";
+const VERSION = "wc-v5";
 const SHELL = [
   "./",
   "./index.html",
   "./style.css",
   "./app.js",
+  "./pwa.js",
   "./lib.js",
   "./firebase-config.js",
   "./manifest.webmanifest",
@@ -16,7 +17,8 @@ const SHELL = [
 ];
 
 self.addEventListener("install", (e) => {
-  e.waitUntil(caches.open(VERSION).then((c) => c.addAll(SHELL)).then(() => self.skipWaiting()));
+  // 單一檔案抓不到不該讓整個 service worker 安裝失敗
+  e.waitUntil(caches.open(VERSION).then((c) => Promise.allSettled(SHELL.map((u) => c.add(u)))).then(() => self.skipWaiting()));
 });
 
 self.addEventListener("activate", (e) => {
