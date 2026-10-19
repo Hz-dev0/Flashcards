@@ -147,7 +147,7 @@ function init() {
   }
 
   const state = {
-    uid: null, cards: new Map(), unsub: null, ready: false,
+    uid: null, cards: new Map(), unsub: null, ready: false, pending: false,
     mode: "new", queue: [], idx: 0, current: null,
     stats: { keep: 0, del: 0, next: 0 },
   };
@@ -201,7 +201,8 @@ function init() {
   function attach(uid) {
     detach();
     state.uid = uid;
-    state.unsub = onSnapshot(cardsCol(), (snap) => {
+    state.unsub = onSnapshot(cardsCol(), { includeMetadataChanges: true }, (snap) => {
+      state.pending = snap.metadata.hasPendingWrites;
       snap.docChanges().forEach((ch) => {
         if (ch.type === "removed") state.cards.delete(ch.doc.id);
         else state.cards.set(ch.doc.id, { id: ch.doc.id, ...ch.doc.data() });
@@ -239,7 +240,18 @@ function init() {
     const empty = $("#h-empty");
     empty.hidden = state.cards.size > 0;
     empty.textContent = state.ready ? "還沒有字卡，先匯入一批吧。" : "載入中…";
+    renderSync();
   }
+  // 同步狀態：離線、或有寫入還沒送到雲端時顯示在標題旁
+  function renderSync() {
+    const el = $("#h-sync");
+    const online = navigator.onLine;
+    const msg = state.pending ? (online ? "同步中…" : "離線・尚未同步") : (online ? "" : "離線中");
+    el.textContent = msg;
+    el.hidden = !msg;
+  }
+  window.addEventListener("online", renderSync);
+  window.addEventListener("offline", renderSync);
   $("#h-learn").onclick = () => startStudy("new");
   $("#h-review").onclick = () => startStudy("known");
   $("#h-import").onclick = () => { show("import"); updatePreview(); };
@@ -328,6 +340,25 @@ function init() {
     state.idx++;
     showCard();
   }
+  // 左右滑動 = 下一張（不管往哪邊都一樣，順序依「隨機順序」設定）
+  const stageEl = $("#stage");
+  let sx = 0, sy = 0, tracking = false, swiped = false;
+  stageEl.addEventListener("pointerdown", (e) => {
+    if (e.pointerType === "mouse" && e.button !== 0) return;
+    sx = e.clientX; sy = e.clientY; tracking = true; swiped = false;
+  });
+  stageEl.addEventListener("pointerup", (e) => {
+    if (!tracking) return;
+    tracking = false;
+    const dx = e.clientX - sx, dy = e.clientY - sy;
+    if (Math.abs(dx) > 60 && Math.abs(dx) > Math.abs(dy) * 1.5) { swiped = true; act("next"); }
+  });
+  stageEl.addEventListener("pointercancel", () => { tracking = false; });
+  // 滑動結束時不要同時觸發「點單字／例句發音」
+  stageEl.addEventListener("click", (e) => {
+    if (swiped) { e.stopPropagation(); e.preventDefault(); swiped = false; }
+  }, true);
+
   $("#a-del").onclick = () => act("del");
   $("#a-keep").onclick = () => act("keep");
   $("#a-next").onclick = () => act("next");
