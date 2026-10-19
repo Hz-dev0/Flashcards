@@ -113,6 +113,7 @@ hr { border: 0; border-top: 1px solid var(--line); margin: 24px 0; }
 .btn.keep { font-size: 14px; }
 .btn.speak { padding: 0; display: grid; place-items: center; color: var(--fg2); }
 .btn.speak .ic { width: 28px; height: 28px; }
+.btn.speak { -webkit-touch-callout: none; user-select: none; -webkit-user-select: none; touch-action: manipulation; }
 
 /* study bar extras */
 .bar-r { display: flex; align-items: center; gap: 2px; }
@@ -120,7 +121,8 @@ hr { border: 0; border-top: 1px solid var(--line); margin: 24px 0; }
 .icon.quiet:hover, .icon.quiet:focus-visible { opacity: 1; }
 .icon.quiet .ic { width: 18px; height: 18px; }
 .icon.txt { width: auto; padding: 0 8px; font: inherit; font-size: 15px; font-weight: 600; }
-.auto { display: flex; align-items: center; gap: 6px; padding: 0 8px; font-size: 14px; color: var(--fg2); cursor: pointer; user-select: none; }
+.mode { height: 30px; margin: 0 6px; padding: 0 12px; border: 1px solid var(--line); border-radius: 15px; background: transparent; font: inherit; font-size: 14px; color: var(--fg2); cursor: pointer; user-select: none; white-space: nowrap; }
+.mode[data-mode="next"], .mode[data-mode="loop"] { background: var(--accent); border-color: var(--accent); color: var(--accent-fg); }
 input.sw {
   appearance: none; -webkit-appearance: none; position: relative; flex: none;
   width: 34px; height: 20px; padding: 0; border: 0; border-radius: 10px;

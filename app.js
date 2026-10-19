@@ -41,7 +41,7 @@ document.addEventListener("visibilitychange", updateLock);
 /* ------------------------------------------------------------------ */
 /* 本機設定（語音每台裝置不同，所以不放雲端）                              */
 /* ------------------------------------------------------------------ */
-const DEFAULTS = { lang: "en-US", voice: "", rate: 0.9, autoplay: true, shuffle: true, autoNext: false };
+const DEFAULTS = { lang: "en-US", voice: "", rate: 0.9, autoplay: true, shuffle: true, autoNext: false, loop: false };
 function readSettings() {
   try { return { ...DEFAULTS, ...JSON.parse(localStorage.getItem("wc.settings") || "{}") }; }
   catch { return { ...DEFAULTS }; }
@@ -293,7 +293,7 @@ function init() {
     state.queue = list.map((c) => c.id);
     state.idx = 0;
     state.stats = { keep: 0, del: 0, next: 0 };
-    $("#st-auto").checked = settings.autoNext;
+    renderMode();
     show("study");
     showCard();
   }
@@ -326,13 +326,16 @@ function init() {
     const c = state.current;
     if (!c) return;
     clearAdv();
-    const p = speakParts(parts || [c.word, c.example].filter(Boolean));
+    const list = parts || [c.word, c.example].filter(Boolean);
+    const p = speakParts(list);
     if (!settings.autoNext) return;
     p.then((ok) => {
       if (!ok || !settings.autoNext) return;
       advTimer = setTimeout(() => {
-        if (settings.autoNext && !editing && current === "study" && state.current === c) act("next");
-      }, 1200);
+        if (!settings.autoNext || editing || current !== "study" || state.current !== c) return;
+        if (settings.loop) playCard(list);   // 單字循環：同一張重複念
+        else act("next");                    // 連播：跳下一張
+      }, settings.loop ? 900 : 1200);
     });
   }
 
@@ -410,9 +413,21 @@ function init() {
   $("#st-speak").onclick = () => playCard();
   $("#c-word").onclick = () => { const c = state.current; if (c) playCard([c.word]); };
   $("#c-example").onclick = () => { const c = state.current; if (c && c.example) playCard([c.example]); };
-  $("#st-auto").onchange = (e) => {
-    settings.autoNext = e.target.checked;
+  // 播放模式：關 → 連播 → 單字循環 → 關（點擊切換）
+  const MODE_TXT = { off: "連播 關", next: "連播 開", loop: "單字循環" };
+  const curMode = () => (!settings.autoNext ? "off" : settings.loop ? "loop" : "next");
+  function renderMode() {
+    const m = curMode();
+    const b = $("#st-mode");
+    b.dataset.mode = m;
+    $("#st-mode-txt").textContent = MODE_TXT[m];
+  }
+  $("#st-mode").onclick = () => {
+    const m = curMode();
+    settings.autoNext = m === "off" ? true : m === "next";
+    settings.loop = m === "next";
     saveSettings();
+    renderMode();
     updateLock();
     if (settings.autoNext) playCard(); else clearAdv();
   };
@@ -451,6 +466,46 @@ function init() {
     closeEdit(settings.autoplay || settings.autoNext);
   };
   document.addEventListener("keydown", (e) => { if (editing && e.key === "Escape") closeEdit(settings.autoNext); });
+
+  /* ---------------- 語速（長按／右鍵喇叭） ---------------- */
+  const rtEl = $("#rt");
+  const rtOut = () => { $("#rt-out").textContent = settings.rate.toFixed(2) + "×"; };
+  function openRate() {
+    if (current !== "study" || editing || !rtEl.hidden) return;
+    editing = true;            // 調整期間暫停連播／循環
+    stopSpeech();
+    $("#rt-range").value = settings.rate;
+    rtOut();
+    rtEl.hidden = false;
+  }
+  function closeRate() {
+    if (rtEl.hidden) return;
+    rtEl.hidden = true;
+    editing = false;
+    if (settings.autoNext) playCard();
+  }
+  $("#rt-range").oninput = (e) => { settings.rate = parseFloat(e.target.value); rtOut(); saveSettings(); };
+  // 放開滑桿時試聽一次
+  $("#rt-range").onchange = () => { const c = state.current; if (c) speakParts([c.word, c.example].filter(Boolean)); };
+  $("#rt-ok").onclick = closeRate;
+  rtEl.addEventListener("pointerdown", (e) => { if (e.target === rtEl) closeRate(); });
+  document.addEventListener("keydown", (e) => { if (!rtEl.hidden && e.key === "Escape") closeRate(); });
+
+  const spk = $("#st-speak");
+  let lpTimer = 0, lpFired = false;
+  const lpCancel = () => { clearTimeout(lpTimer); lpTimer = 0; };
+  spk.addEventListener("pointerdown", (e) => {
+    if (e.pointerType === "mouse") return;      // 電腦用右鍵
+    lpFired = false;
+    lpCancel();
+    lpTimer = setTimeout(() => { lpFired = true; openRate(); }, 500);
+  });
+  ["pointerup", "pointerleave", "pointercancel"].forEach((t) => spk.addEventListener(t, lpCancel));
+  spk.addEventListener("contextmenu", (e) => { e.preventDefault(); lpCancel(); lpFired = true; openRate(); });
+  // 長按後放開不要同時觸發重播
+  spk.addEventListener("click", (e) => {
+    if (lpFired) { e.stopImmediatePropagation(); e.preventDefault(); lpFired = false; }
+  }, true);
 
   document.addEventListener("keydown", (e) => {
     if (current !== "study" || editing || e.metaKey || e.ctrlKey || e.altKey) return;
