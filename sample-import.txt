@@ -1,11 +1,11 @@
-# 格式：單字 | 例句 | 備註（選填）
+# 格式：單字  例句  備註（選填）　← 欄位之間打兩個空白
 # 一行一張；# 開頭是註解；空行會略過
 # 從 Excel / Google 試算表複製貼上（Tab 分隔）也可以
-ephemeral | Fame in the internet age can be ephemeral. | 短暫的
-resilient | She is resilient and recovers quickly from setbacks. | 有韌性的
-meticulous | He is meticulous about keeping accurate records. | 一絲不苟的
-ambiguous | The contract wording was ambiguous, so we asked for clarification. | 模稜兩可的
-pragmatic | We need a pragmatic solution, not a perfect one.
-reluctant | She was reluctant to admit that she needed help.
-scrutinize | Auditors will scrutinize every expense in the report.
-mitigate | Planting trees can help mitigate the effects of heat.
+ephemeral  Fame in the internet age can be ephemeral.  短暫的
+resilient  She is resilient and recovers quickly from setbacks.  有韌性的
+meticulous  He is meticulous about keeping accurate records.  一絲不苟的
+ambiguous  The contract wording was ambiguous, so we asked for clarification.  模稜兩可的
+pragmatic  We need a pragmatic solution, not a perfect one.
+reluctant  She was reluctant to admit that she needed help.
+scrutinize  Auditors will scrutinize every expense in the report.
+mitigate  Planting trees can help mitigate the effects of heat.

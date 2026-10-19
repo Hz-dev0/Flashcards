@@ -2,7 +2,7 @@
 
 /**
  * 解析批量匯入文字。
- * 每行一張：  單字 | 例句 | 備註(選填)   （從試算表貼上的 Tab 分隔也可以）
+ * 每行一張：  單字  例句  備註(選填)   （欄位之間用兩個空白隔開；Tab 分隔也可以）
  * 空行、以 # 或 // 開頭的行會略過。
  */
 export function parseImport(text) {
@@ -14,13 +14,14 @@ export function parseImport(text) {
     .forEach((raw, i) => {
       const line = raw.trim();
       if (!line || line.startsWith("#") || line.startsWith("//")) return;
-      const sep = line.includes("\t") ? "\t" : "|";
+      // Tab 優先；否則用「兩個以上空白」；都沒有才退回舊的 | 格式
+      const sep = line.includes("\t") ? "\t" : /\s{2,}/.test(line) ? /\s{2,}/ : "|";
       const [word = "", example = "", ...rest] = line.split(sep).map((s) => s.trim());
       if (!word) {
         skipped.push({ line: i + 1, reason: "缺少單字" });
         return;
       }
-      rows.push({ word, example, note: rest.join(" | "), line: i + 1 });
+      rows.push({ word, example, note: rest.join("  "), line: i + 1 });
     });
   return { rows, skipped };
 }

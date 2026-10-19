@@ -70,7 +70,7 @@
     <header class="bar">
       <button class="icon" data-back aria-label="返回"><svg class="ic"><use href="#i-back"/></svg></button>
       <span id="st-progress" class="muted"></span>
-      <button class="icon" id="st-speak" aria-label="重播"><svg class="ic"><use href="#i-speaker"/></svg></button>
+      <button class="icon del" id="a-del" aria-label="刪除">刪除</button>
     </header>
     <div id="stage" class="stage">
       <h1 id="c-word" class="word"></h1>
@@ -78,9 +78,9 @@
       <p id="c-note" class="note"></p>
     </div>
     <footer class="actions">
-      <button class="btn danger" id="a-del">刪除</button>
       <button class="btn primary" id="a-keep">會了</button>
       <button class="btn" id="a-next">下一張</button>
+      <button class="btn speak" id="st-speak" aria-label="重播"><svg class="ic"><use href="#i-speaker"/></svg></button>
     </footer>
   </section>
 
@@ -103,13 +103,13 @@
     </header>
     <details class="help">
       <summary>格式說明</summary>
-      <p>一行一張：<code>單字 | 例句 | 備註（選填）</code></p>
-      <pre>ephemeral | Fame can be ephemeral. | 短暫的
-resilient | She is resilient.
+      <p>一行一張：<code>單字  例句  備註（選填）</code>（欄位之間打<b>兩個空白</b>）</p>
+      <pre>ephemeral  Fame can be ephemeral.  短暫的
+resilient  She is resilient.
 # 這行是註解，空行會略過</pre>
       <p>從 Excel / 試算表複製貼上（Tab 分隔）也可以。已存在的相同單字＋例句會自動略過。</p>
     </details>
-    <textarea id="im-text" spellcheck="false" autocapitalize="off" placeholder="單字 | 例句 | 備註（選填）"></textarea>
+    <textarea id="im-text" spellcheck="false" autocapitalize="off" placeholder="單字  例句  備註（選填）"></textarea>
     <label class="link file">選擇 .txt / .tsv 檔<input id="im-file" type="file" accept=".txt,.tsv,text/plain" hidden></label>
     <p id="im-preview" class="muted small"></p>
     <button class="btn primary" id="im-go" disabled>匯入</button>
