@@ -13,7 +13,7 @@ import { parseImport, cardKey, shuffle, splitHighlight } from "./lib.js";
 const $ = (s) => document.querySelector(s);
 const $$ = (s) => [...document.querySelectorAll(s)];
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
-const VIEWS = ["setup", "auth", "home", "study", "done", "import", "settings"];
+const VIEWS = ["setup", "auth", "home", "study", "manage", "done", "import", "settings"];
 let current = null;
 
 function show(name) {
@@ -25,7 +25,7 @@ function show(name) {
 /* ------------------------------------------------------------------ */
 /* 本機設定（語音每台裝置不同，所以不放雲端）                              */
 /* ------------------------------------------------------------------ */
-const DEFAULTS = { lang: "en-US", voice: "", rate: 0.9, autoplay: true, shuffle: true };
+const DEFAULTS = { lang: "en-US", voice: "", rate: 0.9, autoplay: true, shuffle: true, autoNext: false };
 function readSettings() {
   try { return { ...DEFAULTS, ...JSON.parse(localStorage.getItem("wc.settings") || "{}") }; }
   catch { return { ...DEFAULTS }; }
@@ -82,22 +82,27 @@ function utter(text) {
   });
 }
 
+// 回傳 Promise<boolean>：true = 完整念完；false = 被打斷（換卡、重播、離開畫面）
 function speakParts(parts) {
-  if (!synth || !parts.length) return;
+  if (!parts.length) return Promise.resolve(false);
   const token = ++speakToken;
+  if (!synth) return sleep(2500).then(() => token === speakToken);
   const busy = synth.speaking || synth.pending;
   if (busy) synth.cancel();
   const run = async () => {
     for (let i = 0; i < parts.length; i++) {
-      if (token !== speakToken) return;
-      if (i > 0) { await sleep(350); if (token !== speakToken) return; }
+      if (token !== speakToken) return false;
+      if (i > 0) { await sleep(350); if (token !== speakToken) return false; }
       await utter(parts[i]);
     }
+    return token === speakToken;
   };
   // 沒有正在念的內容時同步呼叫，避免 iOS 把它當成非使用者操作
-  busy ? setTimeout(run, 80) : run();
+  return new Promise((res) => { busy ? setTimeout(() => run().then(res), 80) : run().then(res); });
 }
-function stopSpeech() { speakToken++; if (synth) synth.cancel(); }
+let advTimer = 0;
+const clearAdv = () => { clearTimeout(advTimer); advTimer = 0; };
+function stopSpeech() { speakToken++; clearAdv(); if (synth) synth.cancel(); }
 document.addEventListener("visibilitychange", () => { if (document.hidden) stopSpeech(); });
 
 /* ------------------------------------------------------------------ */
@@ -235,12 +240,14 @@ function init() {
     const { n, k } = counts();
     $("#h-new").textContent = n;
     $("#h-known").textContent = k;
+    $("#h-total").textContent = n + k;
     $("#h-learn").disabled = n === 0;
     $("#h-review").disabled = k === 0;
     const empty = $("#h-empty");
     empty.hidden = state.cards.size > 0;
     empty.textContent = state.ready ? "還沒有字卡，先匯入一批吧。" : "載入中…";
     renderSync();
+    if (current === "manage") refreshManage();
   }
   // 同步狀態：離線、或有寫入還沒送到雲端時顯示在標題旁
   function renderSync() {
@@ -254,6 +261,7 @@ function init() {
   window.addEventListener("offline", renderSync);
   $("#h-learn").onclick = () => startStudy("new");
   $("#h-review").onclick = () => startStudy("known");
+  $("#h-manage").onclick = () => { mg.q = ""; $("#m-q").value = ""; mg.limit = PAGE; show("manage"); renderManage(); };
   $("#h-import").onclick = () => { show("import"); updatePreview(); };
   $("#h-settings").onclick = () => { fillSettings(); show("settings"); };
   $$("[data-back]").forEach((b) => b.addEventListener("click", () => { stopSpeech(); show("home"); renderHome(); }));
@@ -269,6 +277,7 @@ function init() {
     state.queue = list.map((c) => c.id);
     state.idx = 0;
     state.stats = { keep: 0, del: 0, next: 0 };
+    $("#st-auto").checked = settings.autoNext;
     show("study");
     showCard();
   }
@@ -283,10 +292,7 @@ function init() {
     return null;
   }
 
-  function showCard() {
-    const c = nextVisible();
-    state.current = c;
-    if (!c) return finish();
+  function renderCard(c) {
     $("#c-word").textContent = c.word;
     const ex = $("#c-example");
     ex.textContent = "";
@@ -297,11 +303,34 @@ function init() {
     ex.hidden = !c.example;
     $("#c-note").textContent = c.note || "";
     $("#c-note").hidden = !c.note;
+  }
+
+  // 念出來；連播開著時，念完停一下就自動跳下一張
+  function playCard(parts) {
+    const c = state.current;
+    if (!c) return;
+    clearAdv();
+    const p = speakParts(parts || [c.word, c.example].filter(Boolean));
+    if (!settings.autoNext) return;
+    p.then((ok) => {
+      if (!ok || !settings.autoNext) return;
+      advTimer = setTimeout(() => {
+        if (settings.autoNext && !editing && current === "study" && state.current === c) act("next");
+      }, 1200);
+    });
+  }
+
+  function showCard() {
+    clearAdv();
+    const c = nextVisible();
+    state.current = c;
+    if (!c) return finish();
+    renderCard(c);
     $("#st-progress").textContent = `${state.idx + 1} / ${state.queue.length}`;
     $("#a-keep").textContent = state.mode === "known" ? "還不熟" : "會了";
     const stage = $("#stage");
     stage.classList.remove("swap"); void stage.offsetWidth; stage.classList.add("swap");
-    if (settings.autoplay) speakParts([c.word, c.example].filter(Boolean));
+    if (settings.autoplay || settings.autoNext) playCard();
   }
 
   function finish() {
@@ -326,7 +355,8 @@ function init() {
 
   function act(kind) {
     const c = state.current;
-    if (!c || current !== "study") return;
+    if (!c || current !== "study" || editing) return;
+    clearAdv();
     if (kind === "keep") {
       const patch = state.mode === "known" ? { status: "new" } : { status: "known", knownAt: Date.now() };
       updateDoc(cardRef(c.id), patch).catch(syncError);
@@ -361,13 +391,52 @@ function init() {
 
   $("#a-del").onclick = () => act("del");
   $("#a-keep").onclick = () => act("keep");
-  $("#a-next").onclick = () => act("next");
-  $("#st-speak").onclick = () => { const c = state.current; if (c) speakParts([c.word, c.example].filter(Boolean)); };
-  $("#c-word").onclick = () => { const c = state.current; if (c) speakParts([c.word]); };
-  $("#c-example").onclick = () => { const c = state.current; if (c && c.example) speakParts([c.example]); };
+  $("#st-speak").onclick = () => playCard();
+  $("#c-word").onclick = () => { const c = state.current; if (c) playCard([c.word]); };
+  $("#c-example").onclick = () => { const c = state.current; if (c && c.example) playCard([c.example]); };
+  $("#st-auto").onchange = (e) => {
+    settings.autoNext = e.target.checked;
+    saveSettings();
+    if (settings.autoNext) playCard(); else clearAdv();
+  };
+
+  /* ---------------- 學習中快速編輯 ---------------- */
+  let editing = false;
+  const edEl = $("#ed");
+  $("#a-edit").onclick = () => {
+    const c = state.current;
+    if (!c || current !== "study") return;
+    editing = true;
+    stopSpeech();
+    $("#ed-word").value = c.word;
+    $("#ed-example").value = c.example || "";
+    $("#ed-note").value = c.note || "";
+    edEl.hidden = false;
+    $("#ed-word").focus();
+  };
+  function closeEdit(resume) {
+    edEl.hidden = true;
+    editing = false;
+    if (resume) playCard();
+  }
+  $("#ed-cancel").onclick = () => closeEdit(settings.autoNext);
+  edEl.addEventListener("pointerdown", (e) => { if (e.target === edEl) closeEdit(settings.autoNext); });
+  $("#ed-form").onsubmit = (e) => {
+    e.preventDefault();
+    const c = state.current;
+    if (!c) return closeEdit(false);
+    const clean = (v) => v.replace(/\s*\n\s*/g, " ").trim();
+    const patch = { word: clean($("#ed-word").value), example: clean($("#ed-example").value), note: clean($("#ed-note").value) };
+    if (!patch.word) { toast("單字不能空白"); return; }
+    updateDoc(cardRef(c.id), patch).catch(syncError);
+    Object.assign(c, patch);
+    renderCard(c);
+    closeEdit(settings.autoplay || settings.autoNext);
+  };
+  document.addEventListener("keydown", (e) => { if (editing && e.key === "Escape") closeEdit(settings.autoNext); });
 
   document.addEventListener("keydown", (e) => {
-    if (current !== "study" || e.metaKey || e.ctrlKey || e.altKey) return;
+    if (current !== "study" || editing || e.metaKey || e.ctrlKey || e.altKey) return;
     if (/^(INPUT|TEXTAREA|SELECT)$/.test(e.target?.tagName || "")) return;
     switch (e.key) {
       case "ArrowRight": act("next"); break;
@@ -376,6 +445,101 @@ function init() {
       case "ArrowDown": case "r": case "R": $("#st-speak").click(); break;
     }
   });
+
+  /* ---------------- 管理全部卡片 ---------------- */
+  const PAGE = 100;
+  const mg = { q: "", f: "all", limit: PAGE, dirty: false };
+  const mBody = $("#m-body");
+
+  function mkCell(cls, el) { const td = document.createElement("td"); td.className = cls; td.append(el); return td; }
+  function mkField(tag, k, v, label) {
+    const el = document.createElement(tag);
+    el.dataset.k = k;
+    el.value = v || "";
+    el.setAttribute("aria-label", label);
+    el.spellcheck = false;
+    if (tag === "input") { el.autocomplete = "off"; el.autocapitalize = "off"; } else el.rows = 2;
+    return el;
+  }
+  function mkBtn(cls, text, act) {
+    const b = document.createElement("button");
+    b.type = "button"; b.className = "mbtn " + cls; b.dataset.act = act; b.textContent = text;
+    return b;
+  }
+  function mkRow(c) {
+    const tr = document.createElement("tr");
+    tr.dataset.id = c.id;
+    tr.append(
+      mkCell("c-word", mkField("input", "word", c.word, "單字")),
+      mkCell("c-example", mkField("textarea", "example", c.example, "例句")),
+      mkCell("c-note", mkField("input", "note", c.note, "備註")),
+      mkCell("c-status", mkBtn("st", c.status === "known" ? "已會" : "待學", "toggle")),
+      mkCell("c-del", mkBtn("del", "刪除", "del")),
+    );
+    return tr;
+  }
+
+  function renderManage() {
+    mg.dirty = false;
+    const q = mg.q.trim().toLowerCase();
+    const list = [...state.cards.values()]
+      .filter((c) => (mg.f === "all" || (mg.f === "known") === (c.status === "known"))
+        && (!q || `${c.word}\n${c.example || ""}\n${c.note || ""}`.toLowerCase().includes(q)))
+      .sort((a, b) => (a.createdAt || 0) - (b.createdAt || 0));
+    $("#m-count").textContent = `${list.length} 張`;
+    const frag = document.createDocumentFragment();
+    list.slice(0, mg.limit).forEach((c) => frag.append(mkRow(c)));
+    mBody.textContent = "";
+    mBody.append(frag);
+    $("#m-more").hidden = list.length <= mg.limit;
+    $("#m-more").textContent = `顯示更多（還有 ${list.length - mg.limit} 張）`;
+    $("#m-empty").hidden = list.length > 0;
+    $("#m-empty").textContent = state.cards.size ? "沒有符合的字卡。" : "還沒有字卡，先匯入一批吧。";
+  }
+  // 正在打字時不要重畫整張表（會搶走游標），等離開格子再更新
+  function refreshManage() {
+    const ae = document.activeElement;
+    if (ae && ae.matches?.("[data-k]") && mBody.contains(ae)) mg.dirty = true;
+    else renderManage();
+  }
+  mBody.addEventListener("focusout", () => setTimeout(() => {
+    const ae = document.activeElement;
+    if (mg.dirty && !(ae && ae.matches?.("[data-k]") && mBody.contains(ae))) renderManage();
+  }, 0));
+  mBody.addEventListener("keydown", (e) => {
+    if (e.key === "Enter" && e.target.matches("[data-k]") && !e.isComposing) { e.preventDefault(); e.target.blur(); }
+  });
+  mBody.addEventListener("change", (e) => {
+    const el = e.target.closest("[data-k]");
+    if (!el) return;
+    const tr = el.closest("tr");
+    const c = state.cards.get(tr.dataset.id);
+    if (!c) return;
+    const k = el.dataset.k;
+    const v = el.value.replace(/\s*\n\s*/g, " ").trim();
+    el.value = v;
+    if (k === "word" && !v) { el.value = c.word; toast("單字不能空白"); return; }
+    if (v === (c[k] || "")) return;
+    c[k] = v;
+    updateDoc(cardRef(c.id), { [k]: v }).catch(syncError);
+    tr.classList.remove("saved"); void tr.offsetWidth; tr.classList.add("saved");
+  });
+  mBody.addEventListener("click", (e) => {
+    const b = e.target.closest("[data-act]");
+    if (!b) return;
+    const c = state.cards.get(b.closest("tr").dataset.id);
+    if (!c) return;
+    if (b.dataset.act === "del") removeCard(c);
+    else updateDoc(cardRef(c.id), c.status === "known" ? { status: "new" } : { status: "known", knownAt: Date.now() }).catch(syncError);
+  });
+  $("#m-q").addEventListener("input", (e) => { mg.q = e.target.value; mg.limit = PAGE; renderManage(); });
+  $$(".seg [data-f]").forEach((b) => b.addEventListener("click", () => {
+    mg.f = b.dataset.f; mg.limit = PAGE;
+    $$(".seg [data-f]").forEach((x) => x.setAttribute("aria-pressed", String(x === b)));
+    renderManage();
+  }));
+  $("#m-more").onclick = () => { mg.limit += PAGE; renderManage(); };
+  $("#m-import").onclick = () => { show("import"); updatePreview(); };
 
   /* ---------------- 匯入 ---------------- */
   function updatePreview() {

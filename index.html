@@ -21,6 +21,7 @@
   <svg width="0" height="0" style="position:absolute" aria-hidden="true">
     <symbol id="i-back" viewBox="0 0 24 24"><path d="M15 18l-6-6 6-6"/></symbol>
     <symbol id="i-speaker" viewBox="0 0 24 24"><path d="M11 5L6 9H3v6h3l5 4V5z"/><path d="M15.5 8.5a5 5 0 010 7M18.5 6a9 9 0 010 12"/></symbol>
+    <symbol id="i-edit" viewBox="0 0 24 24"><path d="M4 20h4L19 9l-4-4L4 16v4z"/><path d="M13.5 6.5l4 4"/></symbol>
     <symbol id="i-sliders" viewBox="0 0 24 24"><path d="M4 6h9M17 6h3M4 12h3M11 12h9M4 18h11M19 18h1"/><circle cx="15" cy="6" r="2"/><circle cx="9" cy="12" r="2"/><circle cx="17" cy="18" r="2"/></symbol>
   </svg>
 
@@ -58,6 +59,10 @@
         <span class="row-title">複習</span>
         <span class="row-sub"><b id="h-known">0</b> 張已會</span>
       </button>
+      <button class="row" id="h-manage">
+        <span class="row-title sm">管理字卡</span>
+        <span class="row-sub"><b id="h-total">0</b> 張</span>
+      </button>
       <button class="row" id="h-import">
         <span class="row-title sm">匯入字卡</span>
       </button>
@@ -70,7 +75,11 @@
     <header class="bar">
       <button class="icon" data-back aria-label="返回"><svg class="ic"><use href="#i-back"/></svg></button>
       <span id="st-progress" class="muted"></span>
-      <button class="icon del" id="a-del" aria-label="刪除">刪除</button>
+      <div class="bar-r">
+        <label class="auto" title="播完自動跳下一張"><input id="st-auto" class="sw" type="checkbox" role="switch"><span>連播</span></label>
+        <button class="icon quiet" id="a-edit" aria-label="編輯這張卡"><svg class="ic"><use href="#i-edit"/></svg></button>
+        <button class="icon del" id="a-del" aria-label="刪除">刪除</button>
+      </div>
     </header>
     <div id="stage" class="stage">
       <h1 id="c-word" class="word"></h1>
@@ -78,10 +87,33 @@
       <p id="c-note" class="note"></p>
     </div>
     <footer class="actions">
-      <button class="btn primary" id="a-keep">會了</button>
-      <button class="btn" id="a-next">下一張</button>
+      <button class="btn primary keep" id="a-keep">會了</button>
       <button class="btn speak" id="st-speak" aria-label="重播"><svg class="ic"><use href="#i-speaker"/></svg></button>
     </footer>
+  </section>
+
+  <!-- 管理全部卡片 -->
+  <section id="v-manage" class="view wide" hidden>
+    <header class="bar">
+      <button class="icon" data-back aria-label="返回"><svg class="ic"><use href="#i-back"/></svg></button>
+      <span class="brand">管理字卡 <small id="m-count" class="muted"></small></span>
+      <button class="icon txt" id="m-import">匯入</button>
+    </header>
+    <div class="m-tools">
+      <input id="m-q" type="search" placeholder="搜尋單字、例句、備註" autocomplete="off" spellcheck="false">
+      <div class="seg" role="group" aria-label="篩選">
+        <button type="button" data-f="all" aria-pressed="true">全部</button>
+        <button type="button" data-f="new" aria-pressed="false">待學</button>
+        <button type="button" data-f="known" aria-pressed="false">已會</button>
+      </div>
+    </div>
+    <p class="muted small m-hint">直接點格子修改，離開格子就自動儲存。</p>
+    <table class="m-table">
+      <thead><tr><th>單字</th><th>例句</th><th>備註</th><th>狀態</th><th></th></tr></thead>
+      <tbody id="m-body"></tbody>
+    </table>
+    <button class="link" id="m-more" hidden>顯示更多</button>
+    <p id="m-empty" class="muted center" hidden>沒有符合的字卡。</p>
   </section>
 
   <!-- 一輪結束 -->
@@ -139,6 +171,19 @@ resilient  She is resilient.
     <p class="muted" id="s-account"></p>
     <button class="btn" id="s-logout">登出</button>
   </section>
+
+  <!-- 學習中快速編輯 -->
+  <div id="ed" class="sheet" hidden role="dialog" aria-modal="true" aria-label="編輯字卡">
+    <form id="ed-form" class="sheet-body">
+      <label class="field"><span>單字</span><input id="ed-word" autocomplete="off" autocapitalize="off" spellcheck="false"></label>
+      <label class="field"><span>例句</span><textarea id="ed-example" rows="3" spellcheck="false"></textarea></label>
+      <label class="field"><span>備註</span><input id="ed-note" autocomplete="off"></label>
+      <div class="sheet-act">
+        <button type="button" class="btn" id="ed-cancel">取消</button>
+        <button type="submit" class="btn primary">儲存</button>
+      </div>
+    </form>
+  </div>
 
   <div id="toast" class="toast" hidden role="status">
     <span id="toast-msg"></span>
