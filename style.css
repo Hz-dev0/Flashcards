@@ -109,9 +109,9 @@ hr { border: 0; border-top: 1px solid var(--line); margin: 24px 0; }
 .note { margin: 0; font-size: 1rem; color: var(--muted); }
 .stage.swap { animation: swap 0.16s ease; }
 @keyframes swap { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; transform: none; } }
-.actions { display: grid; grid-template-columns: 1fr 3fr; gap: 10px; padding-top: 12px; align-items: end; }
-.btn.keep { height: 44px; font-size: 14px; border-radius: 12px; }
-.btn.speak { height: 64px; padding: 0; display: grid; place-items: center; color: var(--fg2); }
+.actions { display: grid; grid-template-columns: 1fr 3fr; gap: 10px; padding-top: 12px; }
+.btn.keep { font-size: 14px; }
+.btn.speak { padding: 0; display: grid; place-items: center; color: var(--fg2); }
 .btn.speak .ic { width: 28px; height: 28px; }
 
 /* study bar extras */

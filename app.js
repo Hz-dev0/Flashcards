@@ -20,7 +20,23 @@ function show(name) {
   current = name;
   for (const v of VIEWS) $(`#v-${v}`).hidden = v !== name;
   window.scrollTo(0, 0);
+  updateLock();
 }
+
+// 連播時保持螢幕不熄滅（鎖屏或切到背景時，瀏覽器會中斷語音合成）
+let wakeLock = null;
+async function updateLock() {
+  const want = settings.autoNext && current === "study" && !document.hidden;
+  try {
+    if (want && !wakeLock && navigator.wakeLock) {
+      wakeLock = await navigator.wakeLock.request("screen");
+      wakeLock.addEventListener("release", () => { wakeLock = null; });
+    } else if (!want && wakeLock) {
+      const w = wakeLock; wakeLock = null; await w.release();
+    }
+  } catch { wakeLock = null; }
+}
+document.addEventListener("visibilitychange", updateLock);
 
 /* ------------------------------------------------------------------ */
 /* 本機設定（語音每台裝置不同，所以不放雲端）                              */
@@ -397,6 +413,7 @@ function init() {
   $("#st-auto").onchange = (e) => {
     settings.autoNext = e.target.checked;
     saveSettings();
+    updateLock();
     if (settings.autoNext) playCard(); else clearAdv();
   };
 
