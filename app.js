@@ -414,7 +414,7 @@ function init() {
   $("#c-word").onclick = () => { const c = state.current; if (c) playCard([c.word]); };
   $("#c-example").onclick = () => { const c = state.current; if (c && c.example) playCard([c.example]); };
   // 播放模式：關 → 連播 → 單字循環 → 關（點擊切換）
-  const MODE_TXT = { off: "連播 關", next: "連播 開", loop: "單字循環" };
+  const MODE_TXT = { off: "連播開啟", next: "關閉連播", loop: "單字循環" };
   const curMode = () => (!settings.autoNext ? "off" : settings.loop ? "loop" : "next");
   function renderMode() {
     const m = curMode();
