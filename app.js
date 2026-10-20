@@ -287,15 +287,21 @@ function init() {
 
   function startStudy(mode) {
     state.mode = mode;
-    let list = [...state.cards.values()].filter(inMode);
-    if (!list.length) { toast("沒有可看的字卡"); show("home"); renderHome(); return; }
-    list = settings.shuffle ? shuffle(list) : list.sort((a, b) => (a.createdAt || 0) - (b.createdAt || 0));
-    state.queue = list.map((c) => c.id);
-    state.idx = 0;
+    if (!buildQueue()) { toast("沒有可看的字卡"); show("home"); renderHome(); return; }
     state.stats = { keep: 0, del: 0, next: 0 };
     renderMode();
     show("study");
     showCard();
+  }
+
+  // 重新排出佇列（回傳是否有卡可看）
+  function buildQueue() {
+    let list = [...state.cards.values()].filter(inMode);
+    if (!list.length) return false;
+    list = settings.shuffle ? shuffle(list) : list.sort((a, b) => (a.createdAt || 0) - (b.createdAt || 0));
+    state.queue = list.map((c) => c.id);
+    state.idx = 0;
+    return true;
   }
 
   // 略過已被其他裝置刪除、或狀態已改變的卡
@@ -353,6 +359,8 @@ function init() {
   }
 
   function finish() {
+    // 連播開著：不分輪次，看完自動重新洗牌繼續，直到手動關閉連播
+    if (settings.autoNext && current === "study" && buildQueue()) { showCard(); return; }
     stopSpeech();
     const s = state.stats;
     const known = state.mode === "known";
