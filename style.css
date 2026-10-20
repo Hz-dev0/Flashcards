@@ -198,3 +198,6 @@ input.sw:checked::after { transform: translateX(14px); box-shadow: none; }
   .m-table tr.saved td { animation: none; }
   input.sw, input.sw::after { transition: none; }
 }
+
+.bar-r { display: inline-flex; gap: 4px; }
+textarea.bulk { min-height: 60vh; width: 100%; font-family: ui-monospace, "Cascadia Mono", Consolas, monospace; font-size: 14px; line-height: 1.7; white-space: pre; overflow: auto; tab-size: 4; }

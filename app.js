@@ -8,12 +8,12 @@ import {
   collection, doc, onSnapshot, writeBatch, setDoc, updateDoc, deleteDoc,
 } from "https://www.gstatic.com/firebasejs/11.0.2/firebase-firestore.js";
 import { firebaseConfig } from "./firebase-config.js";
-import { parseImport, cardKey, shuffle, splitHighlight } from "./lib.js";
+import { parseImport, cardKey, shuffle, splitHighlight, cardToLine, diffBulk } from "./lib.js";
 
 const $ = (s) => document.querySelector(s);
 const $$ = (s) => [...document.querySelectorAll(s)];
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
-const VIEWS = ["setup", "auth", "home", "study", "manage", "done", "import", "settings"];
+const VIEWS = ["setup", "auth", "home", "study", "manage", "bulk", "done", "import", "settings"];
 let current = null;
 
 function show(name) {
@@ -93,7 +93,11 @@ function utter(text) {
     u.rate = settings.rate;
     const v = pickVoice();
     if (v) u.voice = v;
-    u.onend = u.onerror = () => resolve();
+    // 防呆：Android／Chrome 偶爾不會觸發 onend，超時就強制往下走，連播才不會卡死
+    let timer = 0;
+    const done = () => { clearTimeout(timer); resolve(); };
+    u.onend = u.onerror = done;
+    timer = setTimeout(() => { try { synth.cancel(); } catch {} done(); }, 4000 + (text.length * 350) / Math.max(settings.rate, 0.3));
     synth.speak(u);
   });
 }
@@ -289,6 +293,7 @@ function init() {
     state.mode = mode;
     if (!buildQueue()) { toast("沒有可看的字卡"); show("home"); renderHome(); return; }
     state.stats = { keep: 0, del: 0, next: 0 };
+    state.hinted = false;
     renderMode();
     show("study");
     showCard();
@@ -327,13 +332,19 @@ function init() {
     $("#c-note").hidden = !c.note;
   }
 
+  let playCount = 0;
   // 念出來；連播開著時，念完停一下就自動跳下一張
   function playCard(parts) {
     const c = state.current;
     if (!c) return;
     clearAdv();
     const list = parts || [c.word, c.example].filter(Boolean);
-    const p = speakParts(list);
+    let p;
+    // 長時間連播：每 20 張先重置一次語音引擎，避免 Chrome 的合成器越用越卡
+    if (synth && settings.autoNext && ++playCount % 20 === 0) {
+      synth.cancel();
+      p = sleep(250).then(() => (state.current === c && current === "study" ? speakParts(list) : false));
+    } else p = speakParts(list);
     if (!settings.autoNext) return;
     p.then((ok) => {
       if (!ok || !settings.autoNext) return;
@@ -360,7 +371,10 @@ function init() {
 
   function finish() {
     // 連播開著：不分輪次，看完自動重新洗牌繼續，直到手動關閉連播
-    if (settings.autoNext && current === "study" && buildQueue()) { showCard(); return; }
+    if (settings.autoNext && current === "study" && buildQueue()) {
+      if (state.queue.length === 1 && !state.hinted) { state.hinted = true; toast("只剩一張卡，會一直重複播放"); }
+      showCard(); return;
+    }
     stopSpeech();
     const s = state.stats;
     const known = state.mode === "known";
@@ -668,6 +682,61 @@ function init() {
     show("home");
     renderHome();
     toast(`已新增 ${fresh.length} 張` + (dup ? `，略過重複 ${dup} 張` : ""));
+  };
+
+  /* ---------------- 總編輯（純文字） ---------------- */
+  const bk = { snap: [], orig: "" };
+  const bkScopeTxt = () => ({ all: "全部", new: "待學", known: "已會" }[mg.f] || "全部");
+  function bkOpen() {
+    bk.snap = [...state.cards.values()]
+      .filter((c) => mg.f === "all" || (mg.f === "known") === (c.status === "known"))
+      .sort((a, b) => (a.createdAt || 0) - (b.createdAt || 0));
+    bk.orig = bk.snap.map(cardToLine).join("\n");
+    $("#bk-text").value = bk.orig;
+    $("#bk-count").textContent = `${bkScopeTxt()} ${bk.snap.length} 張`;
+    show("bulk");
+    bkSummary();
+  }
+  function bkSummary() {
+    const d = diffBulk(bk.snap, $("#bk-text").value);
+    const n = d.updates.length + d.adds.length + d.deletes.length;
+    $("#bk-save").disabled = n === 0;
+    $("#bk-sum").textContent = n ? `修改 ${d.updates.length} · 新增 ${d.adds.length} · 刪除 ${d.deletes.length}` : "";
+    return d;
+  }
+  $("#bk-text").addEventListener("input", bkSummary);
+  $("#m-bulk").onclick = bkOpen;
+  $("#bk-back").onclick = () => {
+    if ($("#bk-text").value !== bk.orig && !confirm("有尚未儲存的修改，確定離開？")) return;
+    show("manage"); renderManage();
+  };
+  $("#bk-save").onclick = () => {
+    const d = bkSummary();
+    if (d.deletes.length && !confirm(`將刪除 ${d.deletes.length} 張字卡，確定嗎？（儲存後可按「復原」）`)) return;
+    const ops = [];
+    for (const u of d.updates) ops.push((b) => b.update(cardRef(u.card.id), { word: u.row.word, example: u.row.example, note: u.row.note }));
+    const base = Date.now();
+    const col = cardsCol();
+    d.adds.forEach((r, j) => ops.push((b) => b.set(doc(col), { word: r.word, example: r.example, note: r.note, status: "new", createdAt: base + j })));
+    const backup = d.deletes.map((c) => ({ id: c.id, data: toData(c) }));
+    for (const c of d.deletes) ops.push((b) => b.delete(cardRef(c.id)));
+    const jobs = [];
+    for (let i = 0; i < ops.length; i += 400) {
+      const batch = writeBatch(db);
+      ops.slice(i, i + 400).forEach((f) => f(batch));
+      jobs.push(batch.commit());
+    }
+    // 不 await：離線時也立刻生效，連線後自動同步
+    Promise.all(jobs).catch(syncError);
+    show("manage"); renderManage();
+    const msg = `已儲存：修改 ${d.updates.length}、新增 ${d.adds.length}、刪除 ${d.deletes.length}`;
+    if (backup.length) {
+      toast(msg, { label: "復原刪除", fn: () => {
+        const b = writeBatch(db);
+        backup.slice(0, 400).forEach((x) => b.set(cardRef(x.id), x.data));
+        b.commit().catch(syncError);
+      } });
+    } else toast(msg);
   };
 
   /* ---------------- 設定 ---------------- */

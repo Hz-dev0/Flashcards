@@ -97,7 +97,7 @@
     <header class="bar">
       <button class="icon" data-back aria-label="返回"><svg class="ic"><use href="#i-back"/></svg></button>
       <span class="brand">管理字卡 <small id="m-count" class="muted"></small></span>
-      <button class="icon txt" id="m-import">匯入</button>
+      <span class="bar-r"><button class="icon txt" id="m-bulk">文字編輯</button><button class="icon txt" id="m-import">匯入</button></span>
     </header>
     <div class="m-tools">
       <input id="m-q" type="search" placeholder="搜尋單字、例句、備註" autocomplete="off" spellcheck="false">
@@ -114,6 +114,18 @@
     </table>
     <button class="link" id="m-more" hidden>顯示更多</button>
     <p id="m-empty" class="muted center" hidden>沒有符合的字卡。</p>
+  </section>
+
+  <!-- 總編輯（純文字） -->
+  <section id="v-bulk" class="view wide" hidden>
+    <header class="bar">
+      <button class="icon" id="bk-back" aria-label="返回"><svg class="ic"><use href="#i-back"/></svg></button>
+      <span class="brand">文字編輯 <small id="bk-count" class="muted"></small></span>
+      <button class="icon txt" id="bk-save" disabled>儲存</button>
+    </header>
+    <p class="muted small m-hint">一行一張：<code>單字  例句  備註</code>（欄位間兩個空白）。改字＝修改該張；刪掉整行＝刪除；新增一行＝新增。範圍依管理頁目前的篩選。</p>
+    <textarea id="bk-text" class="bulk" spellcheck="false" autocapitalize="off" wrap="off"></textarea>
+    <p id="bk-sum" class="muted small"></p>
   </section>
 
   <!-- 一輪結束 -->
