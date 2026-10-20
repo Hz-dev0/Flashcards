@@ -14,7 +14,7 @@
   <link rel="manifest" href="manifest.json">
   <link rel="icon" type="image/svg+xml" href="icons/icon.svg">
   <link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
-  <link rel="stylesheet" href="style.css?v=3">
+  <link rel="stylesheet" href="style.css?v=5">
 </head>
 <body>
   <!-- icon sprite -->
@@ -116,14 +116,20 @@
     <p id="m-empty" class="muted center" hidden>沒有符合的字卡。</p>
   </section>
 
-  <!-- 總編輯（純文字） -->
+  <!-- 總編輯（純文字編輯器） -->
   <section id="v-bulk" class="view wide" hidden>
     <header class="bar">
       <button class="icon" id="bk-back" aria-label="返回"><svg class="ic"><use href="#i-back"/></svg></button>
       <span class="brand">文字編輯 <small id="bk-count" class="muted"></small></span>
       <button class="icon txt" id="bk-save" disabled>儲存</button>
     </header>
-    <p class="muted small m-hint">一行一張：<code>單字  例句  備註</code>（欄位間兩個空白）。改字＝修改該張；刪掉整行＝刪除；新增一行＝新增。範圍依管理頁目前的篩選。</p>
+    <div class="m-tools">
+      <select id="bk-scope" aria-label="範圍">
+        <option value="all">全部</option><option value="new">待學</option><option value="known">已會</option>
+      </select>
+      <button class="link" id="bk-reset" type="button">還原未儲存的修改</button>
+    </div>
+    <p class="muted small m-hint">一行一張：<code>[編號] 單字  例句  備註</code>（欄位間兩個空白）。<b>編號請保留</b>；要新增就另起一行直接寫 <code>單字  例句  備註</code>，儲存後會自動補上編號；刪掉整行＝刪除。調整行的順序會一併儲存。快捷鍵 Ctrl+S。</p>
     <textarea id="bk-text" class="bulk" spellcheck="false" autocapitalize="off" wrap="off"></textarea>
     <p id="bk-sum" class="muted small"></p>
   </section>
@@ -213,6 +219,6 @@ resilient  She is resilient.
   </div>
 
   <script src="pwa.js" defer></script>
-  <script type="module" src="app.js?v=3"></script>
+  <script type="module" src="app.js?v=5"></script>
 </body>
 </html>

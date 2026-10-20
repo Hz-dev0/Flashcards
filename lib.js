@@ -76,40 +76,44 @@ export function cardToLine(c) {
 /** 比對用 key（內容完全相同的行視為「沒改」） */
 export const rowKey = (r) => `${flat(r.word)}\u0000${flat(r.example)}\u0000${flat(r.note)}`;
 
-/**
- * 總編輯：把「原本的卡」和「編輯後的文字」比對。
- * 先配對內容完全相同的行（沒改）；剩下的先用「單字相同」配成修改，
- * 再依順序配成修改；多出來的新行 = 新增，多出來的舊卡 = 刪除。
- */
-export function diffBulk(cards, text) {
-  const { rows } = parseImport(text, { comments: false });
-  const pool = new Map(); // key -> [card...]
-  for (const c of cards) {
-    const k = rowKey(c);
-    if (!pool.has(k)) pool.set(k, []);
-    pool.get(k).push(c);
-  }
-  const leftRows = [];
-  let same = 0;
-  for (const r of rows) {
-    const arr = pool.get(rowKey(r));
-    if (arr && arr.length) { arr.shift(); same++; } else leftRows.push(r);
-  }
-  let leftCards = [];
-  for (const arr of pool.values()) leftCards.push(...arr);
-  leftCards.sort((a, b) => (a.createdAt || 0) - (b.createdAt || 0));
+/** 行首編號：`[12] 單字  例句  備註` */
+export const bulkLine = (c, n) => `[${n}] ${cardToLine(c)}`;
 
-  const updates = [];
-  const rest = [];
-  // 1) 單字相同 → 修改
-  for (const r of leftRows) {
-    const i = leftCards.findIndex((c) => flat(c.word) === flat(r.word));
-    if (i >= 0) { updates.push({ card: leftCards[i], row: r }); leftCards.splice(i, 1); } else rest.push(r);
+/** 解析總編輯文字 → [{ id: 編號或 null, word, example, note }]；空行略過，不處理註解 */
+export function parseBulk(text) {
+  const out = [];
+  String(text || "").replace(/\r/g, "").split("\n").forEach((raw) => {
+    if (!raw.trim()) return;
+    const m = /^\s*\[(\d+)\][ \t]*/.exec(raw);
+    const rest = m ? raw.slice(m[0].length) : raw;
+    const row = parseImport(rest, { comments: false }).rows[0] || { word: "", example: "", note: "" };
+    out.push({ id: m ? Number(m[1]) : null, word: row.word, example: row.example, note: row.note });
+  });
+  return out;
+}
+
+/**
+ * 總編輯比對。snap 是開啟（或上次儲存）時的卡片陣列，第 i 張的編號是 i+1。
+ * 有編號且存在 → 沒改／修改；沒編號（或編號重複／不存在）→ 新增；
+ * 編號從文字裡消失（或整行被清空）→ 刪除。lines 是依文字順序的有效行。
+ */
+export function diffBulk(snap, text) {
+  const used = new Set();
+  const lines = [];
+  const updates = [], adds = [];
+  let same = 0;
+  for (const it of parseBulk(text)) {
+    if (!it.word) continue;
+    const card = it.id && !used.has(it.id) ? snap[it.id - 1] : null;
+    if (card) {
+      used.add(it.id);
+      if (rowKey(card) === rowKey(it)) same++; else updates.push({ card, row: it });
+      lines.push({ card, row: it });
+    } else {
+      adds.push(it);
+      lines.push({ card: null, row: it });
+    }
   }
-  // 2) 依順序配對
-  const adds = [];
-  for (const r of rest) {
-    if (leftCards.length) updates.push({ card: leftCards.shift(), row: r }); else adds.push(r);
-  }
-  return { same, updates, adds, deletes: leftCards };
+  const deletes = snap.filter((_, i) => !used.has(i + 1));
+  return { same, updates, adds, deletes, lines };
 }

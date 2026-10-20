@@ -7,8 +7,8 @@ import {
   initializeFirestore, getFirestore, persistentLocalCache, persistentMultipleTabManager,
   collection, doc, onSnapshot, writeBatch, setDoc, updateDoc, deleteDoc,
 } from "https://www.gstatic.com/firebasejs/11.0.2/firebase-firestore.js";
-import { firebaseConfig } from "./firebase-config.js";
-import { parseImport, cardKey, shuffle, splitHighlight, cardToLine, diffBulk } from "./lib.js";
+import { firebaseConfig } from "./firebase-config.js?v=5";
+import { parseImport, cardKey, shuffle, splitHighlight, bulkLine, diffBulk } from "./lib.js?v=5";
 
 const $ = (s) => document.querySelector(s);
 const $$ = (s) => [...document.querySelectorAll(s)];
@@ -684,40 +684,97 @@ function init() {
     toast(`已新增 ${fresh.length} 張` + (dup ? `，略過重複 ${dup} 張` : ""));
   };
 
-  /* ---------------- 總編輯（純文字） ---------------- */
-  const bk = { snap: [], orig: "" };
-  const bkScopeTxt = () => ({ all: "全部", new: "待學", known: "已會" }[mg.f] || "全部");
-  function bkOpen() {
-    bk.snap = [...state.cards.values()]
-      .filter((c) => mg.f === "all" || (mg.f === "known") === (c.status === "known"))
-      .sort((a, b) => (a.createdAt || 0) - (b.createdAt || 0));
-    bk.orig = bk.snap.map(cardToLine).join("\n");
+  /* ---------------- 總編輯（純文字編輯器） ---------------- */
+  const bk = { snap: [], orig: "", scope: "all" };
+  const bkDirty = () => $("#bk-text").value !== bk.orig;
+  const bkRender = (list) => {
+    bk.snap = list;
+    bk.orig = list.map((c, i) => bulkLine(c, i + 1)).join("\n");
     $("#bk-text").value = bk.orig;
-    $("#bk-count").textContent = `${bkScopeTxt()} ${bk.snap.length} 張`;
-    show("bulk");
+    $("#bk-count").textContent = `${list.length} 張`;
     bkSummary();
+  };
+  function bkLoad() {
+    const f = bk.scope;
+    bkRender([...state.cards.values()]
+      .filter((c) => f === "all" || (f === "known") === (c.status === "known"))
+      .sort((a, b) => (a.createdAt || 0) - (b.createdAt || 0)));
   }
   function bkSummary() {
     const d = diffBulk(bk.snap, $("#bk-text").value);
+    const moved = bkOrderChanged(d);
     const n = d.updates.length + d.adds.length + d.deletes.length;
-    $("#bk-save").disabled = n === 0;
-    $("#bk-sum").textContent = n ? `修改 ${d.updates.length} · 新增 ${d.adds.length} · 刪除 ${d.deletes.length}` : "";
+    $("#bk-save").disabled = !(n || moved);
+    $("#bk-save").textContent = bkDirty() ? "儲存 ●" : "儲存";
+    const keys = new Set([...state.cards.values()].map((c) => cardKey(c.word, c.example)));
+    const dup = d.adds.filter((r) => keys.has(cardKey(r.word, r.example))).length;
+    $("#bk-sum").textContent = n || moved
+      ? `修改 ${d.updates.length} · 新增 ${d.adds.length}${dup ? `（${dup} 張與現有重複）` : ""} · 刪除 ${d.deletes.length}${moved ? " · 順序有調整" : ""}`
+      : "";
     return d;
   }
+  // 依文字順序重新分配既有卡片的 createdAt（順序有變才回傳 true）
+  function bkTimes(d) {
+    const S = d.lines.filter((l) => l.card).map((l) => l.card.createdAt || 0).sort((a, b) => a - b);
+    let ei = 0;
+    const t = d.lines.map((l) => (l.card ? S[ei++] : null));
+    for (let i = 0; i < t.length;) {
+      if (t[i] !== null) { i++; continue; }
+      let j = i; while (j < t.length && t[j] === null) j++;
+      const k = j - i, p = i > 0 ? t[i - 1] : null, n = j < t.length ? t[j] : null;
+      for (let x = 0; x < k; x++) {
+        t[i + x] = p !== null && n !== null ? p + ((n - p) * (x + 1)) / (k + 1)
+          : p !== null ? p + x + 1 : n !== null ? n - (k - x) : Date.now() + x;
+      }
+      i = j;
+    }
+    return t;
+  }
+  function bkOrderChanged(d) {
+    const t = bkTimes(d);
+    return d.lines.some((l, i) => l.card && (l.card.createdAt || 0) !== t[i]);
+  }
   $("#bk-text").addEventListener("input", bkSummary);
-  $("#m-bulk").onclick = bkOpen;
+  $("#bk-text").addEventListener("keydown", (e) => {
+    if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "s") { e.preventDefault(); bkSave(); }
+  });
+  window.addEventListener("beforeunload", (e) => { if (current === "bulk" && bkDirty()) { e.preventDefault(); e.returnValue = ""; } });
+  $("#m-bulk").onclick = () => { bk.scope = mg.f; $("#bk-scope").value = bk.scope; bkLoad(); show("bulk"); };
+  $("#bk-scope").onchange = (e) => {
+    if (bkDirty() && !confirm("有尚未儲存的修改，切換範圍會捨棄，確定嗎？")) { e.target.value = bk.scope; return; }
+    bk.scope = e.target.value; bkLoad();
+  };
+  $("#bk-reset").onclick = () => { if (!bkDirty() || confirm("捨棄所有尚未儲存的修改？")) { $("#bk-text").value = bk.orig; bkSummary(); } };
   $("#bk-back").onclick = () => {
-    if ($("#bk-text").value !== bk.orig && !confirm("有尚未儲存的修改，確定離開？")) return;
+    if (bkDirty() && !confirm("有尚未儲存的修改，確定離開？")) return;
     show("manage"); renderManage();
   };
-  $("#bk-save").onclick = () => {
+  $("#bk-save").onclick = bkSave;
+  function bkSave() {
     const d = bkSummary();
+    const t = bkTimes(d);
+    const moved = bkOrderChanged(d);
+    if (!(d.updates.length || d.adds.length || d.deletes.length || moved)) return;
     if (d.deletes.length && !confirm(`將刪除 ${d.deletes.length} 張字卡，確定嗎？（儲存後可按「復原」）`)) return;
     const ops = [];
-    for (const u of d.updates) ops.push((b) => b.update(cardRef(u.card.id), { word: u.row.word, example: u.row.example, note: u.row.note }));
-    const base = Date.now();
-    const col = cardsCol();
-    d.adds.forEach((r, j) => ops.push((b) => b.set(doc(col), { word: r.word, example: r.example, note: r.note, status: "new", createdAt: base + j })));
+    const next = [];   // 儲存後的新快照（依文字順序）
+    d.lines.forEach((l, i) => {
+      const r = l.row;
+      if (l.card) {
+        const patch = {};
+        if (r.word !== l.card.word) patch.word = r.word;
+        if ((r.example || "") !== (l.card.example || "")) patch.example = r.example || "";
+        if ((r.note || "") !== (l.card.note || "")) patch.note = r.note || "";
+        if ((l.card.createdAt || 0) !== t[i]) patch.createdAt = t[i];
+        if (Object.keys(patch).length) ops.push((b) => b.update(cardRef(l.card.id), patch));
+        next.push({ ...l.card, word: r.word, example: r.example || "", note: r.note || "", createdAt: t[i] });
+      } else {
+        const ref = doc(cardsCol());
+        const data = { word: r.word, example: r.example || "", note: r.note || "", status: "new", createdAt: t[i] };
+        ops.push((b) => b.set(ref, data));
+        next.push({ id: ref.id, ...data });
+      }
+    });
     const backup = d.deletes.map((c) => ({ id: c.id, data: toData(c) }));
     for (const c of d.deletes) ops.push((b) => b.delete(cardRef(c.id)));
     const jobs = [];
@@ -728,16 +785,17 @@ function init() {
     }
     // 不 await：離線時也立刻生效，連線後自動同步
     Promise.all(jobs).catch(syncError);
-    show("manage"); renderManage();
+    bkRender(next);   // 留在編輯器，並替新增的行補上編號
     const msg = `已儲存：修改 ${d.updates.length}、新增 ${d.adds.length}、刪除 ${d.deletes.length}`;
     if (backup.length) {
       toast(msg, { label: "復原刪除", fn: () => {
         const b = writeBatch(db);
         backup.slice(0, 400).forEach((x) => b.set(cardRef(x.id), x.data));
         b.commit().catch(syncError);
+        setTimeout(() => { if (current === "bulk" && !bkDirty()) bkLoad(); }, 400);
       } });
     } else toast(msg);
-  };
+  }
 
   /* ---------------- 設定 ---------------- */
   function fillVoices() {
