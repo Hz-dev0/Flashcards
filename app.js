@@ -7,8 +7,8 @@ import {
   initializeFirestore, getFirestore, persistentLocalCache, persistentMultipleTabManager,
   collection, doc, onSnapshot, writeBatch, setDoc, updateDoc, deleteDoc,
 } from "https://www.gstatic.com/firebasejs/11.0.2/firebase-firestore.js";
-import { firebaseConfig } from "./firebase-config.js?v=5";
-import { parseImport, cardKey, shuffle, splitHighlight, bulkLine, diffBulk } from "./lib.js?v=5";
+import { firebaseConfig } from "./firebase-config.js?v=8";
+import { parseImport, cardKey, shuffle, splitHighlight, bulkLine, diffBulk } from "./lib.js?v=8";
 
 const $ = (s) => document.querySelector(s);
 const $$ = (s) => [...document.querySelectorAll(s)];
@@ -737,6 +737,27 @@ function init() {
   $("#bk-text").addEventListener("input", bkSummary);
   $("#bk-text").addEventListener("keydown", (e) => {
     if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "s") { e.preventDefault(); bkSave(); }
+  });
+  // Enter 自動編號：不管游標在行的哪裡，都在「目前這行下面」新增一行，編號 = 目前最大編號 + 1
+  // （例：[1][2][3] 在 [1] 按 Enter → [1][4][2][3]；儲存後會依這個順序重新編號）
+  $("#bk-text").addEventListener("beforeinput", (e) => {
+    if (e.inputType !== "insertLineBreak" && e.inputType !== "insertParagraph") return;
+    const ta = e.target;
+    const { selectionStart: a, selectionEnd: b, value: v } = ta;
+    if (a !== b) return;
+    const ls = v.lastIndexOf("\n", a - 1) + 1;
+    const le0 = v.indexOf("\n", a);
+    const le = le0 === -1 ? v.length : le0;
+    e.preventDefault();
+    if (/^\s*\[\d+\]\s*$/.test(v.slice(ls, le))) return;       // 空的編號行：不要再疊一個
+    let max = bk.snap.length;
+    for (const m of v.matchAll(/^\s*\[(\d+)\]/gm)) max = Math.max(max, Number(m[1]));
+    const ins = `\n[${max + 1}] `;
+    ta.setSelectionRange(le, le);
+    if (!document.execCommand || !document.execCommand("insertText", false, ins)) {
+      ta.setRangeText(ins, le, le, "end");
+      ta.dispatchEvent(new Event("input", { bubbles: true }));
+    }
   });
   window.addEventListener("beforeunload", (e) => { if (current === "bulk" && bkDirty()) { e.preventDefault(); e.returnValue = ""; } });
   $("#m-bulk").onclick = () => { bk.scope = mg.f; $("#bk-scope").value = bk.scope; bkLoad(); show("bulk"); };
