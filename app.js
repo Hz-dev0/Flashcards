@@ -7,8 +7,8 @@ import {
   initializeFirestore, getFirestore, persistentLocalCache, persistentMultipleTabManager,
   collection, doc, onSnapshot, writeBatch, setDoc, updateDoc, deleteDoc,
 } from "https://www.gstatic.com/firebasejs/11.0.2/firebase-firestore.js";
-import { firebaseConfig } from "./firebase-config.js?v=8";
-import { parseImport, cardKey, shuffle, splitHighlight, bulkLine, diffBulk } from "./lib.js?v=8";
+import { firebaseConfig } from "./firebase-config.js?v=9";
+import { parseImport, cardKey, shuffle, splitHighlight, bulkLine, diffBulk } from "./lib.js?v=9";
 
 const $ = (s) => document.querySelector(s);
 const $$ = (s) => [...document.querySelectorAll(s)];
@@ -756,6 +756,24 @@ function init() {
     ta.setSelectionRange(le, le);
     if (!document.execCommand || !document.execCommand("insertText", false, ins)) {
       ta.setRangeText(ins, le, le, "end");
+      ta.dispatchEvent(new Event("input", { bubbles: true }));
+    }
+  });
+  // 空的編號行（只有 [n]、還沒輸入內容）按退格 → 整個編號連同換行一起刪掉，回到上一行行尾
+  $("#bk-text").addEventListener("beforeinput", (e) => {
+    if (e.inputType !== "deleteContentBackward") return;
+    const ta = e.target;
+    const { selectionStart: a, selectionEnd: b, value: v } = ta;
+    if (a !== b) return;
+    const ls = v.lastIndexOf("\n", a - 1) + 1;
+    const le0 = v.indexOf("\n", a);
+    const le = le0 === -1 ? v.length : le0;
+    if (a !== le || !/^\s*\[\d+\]\s*$/.test(v.slice(ls, le))) return;   // 游標要在這行行尾、且這行只有編號
+    e.preventDefault();
+    const from = ls > 0 ? ls - 1 : ls;
+    ta.setSelectionRange(from, le);
+    if (!document.execCommand || !document.execCommand("delete")) {
+      ta.setRangeText("", from, le, "end");
       ta.dispatchEvent(new Event("input", { bubbles: true }));
     }
   });
