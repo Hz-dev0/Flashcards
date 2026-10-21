@@ -41,7 +41,7 @@ document.addEventListener("visibilitychange", updateLock);
 /* ------------------------------------------------------------------ */
 /* 本機設定（語音每台裝置不同，所以不放雲端）                              */
 /* ------------------------------------------------------------------ */
-const DEFAULTS = { lang: "en-US", voice: "", rate: 0.9, autoplay: true, shuffle: true, autoNext: false, loop: false };
+const DEFAULTS = { lang: "en-US", voice: "", rate: 0.95, autoplay: true, shuffle: true, autoNext: false, loop: false };
 function readSettings() {
   try { return { ...DEFAULTS, ...JSON.parse(localStorage.getItem("wc.settings") || "{}") }; }
   catch { return { ...DEFAULTS }; }
@@ -73,16 +73,34 @@ function loadVoices() {
 }
 if (synth) { loadVoices(); synth.onvoiceschanged = loadVoices; }
 
+// 語音品質評分：神經網路／加強版語音聽起來自然得多，壓縮版與 eSpeak 最機械
+function voiceScore(v) {
+  const n = v.name.toLowerCase();
+  let s = 0;
+  if (/natural|neural|online/.test(n)) s += 100;        // Edge／Windows 的 Microsoft xxx Online (Natural)
+  if (/premium|enhanced|siri/.test(n)) s += 80;          // iOS／macOS 下載的高品質語音
+  if (/google/.test(n)) s += 60;                         // Android／Chrome 的 Google 語音
+  if (/samantha|ava|allison|serena|daniel|karen|moira|tessa|zoe|evan|nathan/.test(n)) s += 20;
+  if (/compact|espeak|novelty|bad news|bahh|bells|boing|bubbles|cellos|deranged|good news|hysterical|jester|organ|trinoids|whisper|zarvox|albert|fred|junior|kathy|ralph|superstar/.test(n)) s -= 100;
+  if (!v.localService) s += 10;                          // 雲端語音通常較好（需要網路）
+  return s;
+}
+const voiceLabel = (v) => {
+  const s = voiceScore(v);
+  return `${s >= 80 ? "★ " : ""}${v.name} (${v.lang})`;
+};
+
 function pickVoice() {
   if (!voices.length) return null;
   if (settings.voice) {
     const v = voices.find((x) => x.name === settings.voice);
     if (v) return v;
   }
-  const want = settings.lang.toLowerCase();
+  const want = normLang(settings.lang);
   const prim = want.split("-")[0];
-  return voices.find((v) => normLang(v.lang) === want)
-      || voices.find((v) => normLang(v.lang).startsWith(prim))
+  const best = (list) => list.sort((a, b) => voiceScore(b) - voiceScore(a))[0] || null;
+  return best(voices.filter((v) => normLang(v.lang) === want))
+      || best(voices.filter((v) => normLang(v.lang).startsWith(prim)))
       || null;
 }
 
@@ -843,7 +861,8 @@ function init() {
     sv.add(new Option("自動（建議）", ""));
     const prim = settings.lang.split("-")[0].toLowerCase();
     voices.filter((v) => normLang(v.lang).startsWith(prim))
-      .forEach((v) => sv.add(new Option(`${v.name} (${v.lang})`, v.name)));
+      .sort((a, b) => voiceScore(b) - voiceScore(a))
+      .forEach((v) => sv.add(new Option(voiceLabel(v), v.name)));
     sv.value = [...sv.options].some((o) => o.value === settings.voice) ? settings.voice : "";
   }
   function fillSettings() {

@@ -12,8 +12,8 @@
   <meta name="apple-mobile-web-app-status-bar-style" content="default">
   <title>字卡</title>
   <link rel="manifest" href="manifest.json">
-  <link rel="icon" type="image/svg+xml" href="icons/icon.svg">
-  <link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
+  <link rel="icon" type="image/png" href="icons/icon-192.png">
+  <link rel="apple-touch-icon" href="icons/icon-192.png">
   <link rel="stylesheet" href="style.css?v=9">
 </head>
 <body>
@@ -180,6 +180,7 @@ resilient  She is resilient.
     <label class="check"><input id="s-auto" type="checkbox"> 換到新卡時自動朗讀</label>
     <label class="check"><input id="s-shuffle" type="checkbox"> 隨機順序</label>
     <button class="btn" id="s-test">試聽</button>
+    <p class="muted small">語音清單中標 ★ 的是高品質語音。iPhone：到「設定 → 輔助使用 → 朗讀內容 → 聲音 → 英文」下載 Enhanced／Premium 語音；Android：選 Google 語音；Windows／Edge：選 Natural 語音。</p>
     <p class="muted small">語言、語音、語速等設定只存在這台裝置（各裝置可用的語音不同）。</p>
     <hr>
     <button class="btn primary" id="s-install" hidden>安裝到手機</button>
@@ -219,6 +220,6 @@ resilient  She is resilient.
   </div>
 
   <script src="pwa.js" defer></script>
-  <script type="module" src="app.js?v=9"></script>
+  <script type="module" src="app.js?v=10"></script>
 </body>
 </html>
