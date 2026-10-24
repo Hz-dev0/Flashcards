@@ -211,26 +211,31 @@ textarea.bulk { min-height: 60vh; width: 100%; font-family: ui-monospace, "Casca
 .vq { flex: 1; display: flex; flex-direction: column; justify-content: center; gap: 1.1rem; padding: 0.5rem 0 1rem; text-align: center; border-radius: 20px; }
 .vq .word { cursor: pointer; }
 .vq-badge { align-self: center; padding: 4px 14px; border: 1px solid var(--line); border-radius: 999px; font-size: 14px; color: var(--fg2); }
-.vq-rows { display: flex; flex-direction: column; gap: 8px; text-align: left; }
-.vq-row { display: grid; grid-template-columns: 64px 1fr; align-items: center; gap: 4px 10px; }
-.vq-lab { font-weight: 700; font-size: 1rem; line-height: 1.15; }
+.vq-rows { display: flex; flex-direction: column; gap: 10px; text-align: left; }
+.vq-row { display: grid; grid-template-columns: 64px 1fr; align-items: stretch; gap: 4px 10px; }
+.vq-lab { font-weight: 700; font-size: 1rem; line-height: 1.15; align-self: center; }
 .vq-lab small { display: block; font-weight: 400; font-size: 12px; color: var(--muted); }
-.vq-row input { font-size: 1.1rem; font-weight: 600; padding: 9px 12px; border-radius: 10px; }
-.vq-row input.given { background: var(--line); border-color: transparent; color: var(--fg2); }
-.vq-row input.ok { border-color: var(--ok); color: var(--ok); box-shadow: 0 0 0 3px color-mix(in srgb, var(--ok) 25%, transparent); }
-.vq-row input.bad { border-color: var(--danger); color: var(--danger); box-shadow: 0 0 0 3px color-mix(in srgb, var(--danger) 25%, transparent); animation: vq-jolt 0.4s ease; }
-.vq-fix { grid-column: 2; color: var(--ok); font-size: 14px; font-weight: 600; margin-top: -2px; }
 
-.vq-res { display: flex; flex-direction: column; gap: 8px; text-align: left; }
-.vq-ex { display: grid; grid-template-columns: 64px 1fr; gap: 10px; align-items: start; width: 100%; padding: 11px 14px 11px 12px; border: 1px solid var(--line); border-left-width: 4px; border-radius: 12px; background: transparent; color: inherit; font: inherit; text-align: left; cursor: pointer; animation: vq-rise 0.35s ease both; }
-.vq-ex:nth-child(2) { animation-delay: 0.08s; } .vq-ex:nth-child(3) { animation-delay: 0.16s; }
+.vq-flip { display: grid; perspective: 900px; min-width: 0; }
+.vq-face { grid-area: 1 / 1; backface-visibility: hidden; -webkit-backface-visibility: hidden; transition: transform 0.55s cubic-bezier(.3,.8,.3,1); border: 1px solid var(--line); border-left-width: 4px; border-radius: 12px; min-height: 66px; }
+.vq-front { display: flex; align-items: center; padding: 0 4px; }
+.vq-front:focus-within { border-color: var(--fg2); }
+.vq-back { transform: rotateX(-180deg); pointer-events: none; display: flex; flex-direction: column; justify-content: center; gap: 3px; width: 100%; padding: 9px 14px 9px 12px; background: transparent; color: inherit; font: inherit; text-align: left; cursor: pointer; }
+.vq-row input { border: 0; border-radius: 10px; background: transparent; font-size: 1.25rem; font-weight: 700; padding: 8px 10px; height: 100%; }
+.vq-row input:focus { outline: none; }
+.vq-row input.given { color: var(--fg2); }
+.vq-front:has(input.given) { background: var(--line); border-color: transparent; }
+.vq-front:has(input.ok) { border-color: var(--ok); }
+.vq-front:has(input.bad) { border-color: var(--danger); }
+.vq-rows.flipped .vq-front { transform: rotateX(180deg); pointer-events: none; }
+.vq-rows.flipped .vq-back { transform: rotateX(0); pointer-events: auto; }
+.vq-rows.flipped .vq-row:nth-child(2) .vq-face { transition-delay: 0.1s; }
+.vq-rows.flipped .vq-row:nth-child(3) .vq-face { transition-delay: 0.2s; }
+.vq-rows.reset .vq-face { transition: none; }
 .vq-ex.ok { border-left-color: var(--ok); }
 .vq-ex.bad { border-left-color: var(--danger); }
 .vq-ex.speaking { border-color: var(--fg2); background: color-mix(in srgb, var(--line) 55%, transparent); }
 .vq-ex.ok.speaking { border-left-color: var(--ok); } .vq-ex.bad.speaking { border-left-color: var(--danger); }
-.vq-exf { font-size: 1rem; font-weight: 700; line-height: 1.15; padding-top: 3px; }
-.vq-exf small { display: block; font-size: 12px; font-weight: 400; color: var(--muted); }
-.vq-exm { display: flex; flex-direction: column; gap: 3px; min-width: 0; }
 .vq-exh { display: flex; flex-wrap: wrap; align-items: baseline; gap: 2px 8px; }
 .vq-form { font-size: 1.25rem; font-weight: 700; overflow-wrap: anywhere; }
 .vq-mark { font-style: normal; font-weight: 800; }

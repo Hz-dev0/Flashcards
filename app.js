@@ -646,7 +646,6 @@ function init() {
     $("#vq-note").textContent = c.note || "";
     $("#vq-note").hidden = !c.note;
     $("#vq-del").disabled = true;
-    $(".vq-rows").hidden = vqLook();
     $("#vq-badge").hidden = vqLook();
     if (vqLook()) {                       // 純看：不用打字，直接顯示三態＋例句並朗讀
       vq.done = true;
@@ -655,7 +654,7 @@ function init() {
       $("#vq-del").disabled = false;
       $("#vq-go").textContent = "下一個";
       $("#vq-quiz").classList.remove("ok", "bad");
-      renderExamples(c);
+      renderExamples(c, null, true);
       vqScore();
       speakExamples();
       return;
@@ -668,10 +667,8 @@ function init() {
       el.readOnly = i === f;
       el.tabIndex = i === f ? -1 : 0;
       el.value = i === f ? showAlts(c[FORMS[i][0]]) : "";
-      $(`#vq-f${i}`).hidden = true;
     }
-    $("#vq-res").hidden = true;
-    $("#vq-res").textContent = "";
+    vqFlip(false);
     $("#vq-giveup").hidden = false;
     $("#vq-go").textContent = "送出";
     const q = $("#vq-quiz");
@@ -773,7 +770,6 @@ function init() {
       el.readOnly = true;
       if (!ok) allOk = false;
     }
-    $(".vq-rows").hidden = true;
     vq.done = true;
     vq.total++;
     if (allOk) { vq.ok++; vq.streak++; vq.best = Math.max(vq.best, vq.streak); } else vq.streak = 0;
@@ -787,18 +783,19 @@ function init() {
     setTimeout(() => { if (vq.card === c && vq.done && current === "verb") speakExamples(); }, 700);
   }
 
-  function renderExamples(c, res) {
-    const box = $("#vq-res");
-    box.textContent = "";
-    FORMS.forEach(([k, label, zh], i) => {
+  // 翻面：front＝輸入框，back＝正確答案＋例句；三列依序翻（instant＝不要動畫）
+  function vqFlip(on, instant) {
+    const box = $("#vq-rows");
+    if (instant || !on) box.classList.add("reset");
+    box.classList.toggle("flipped", on);
+    if (instant || !on) { void box.offsetWidth; box.classList.remove("reset"); }
+  }
+  function renderExamples(c, res, instant) {
+    FORMS.forEach(([k], i) => {
       const r = res?.[i];
-      const b = document.createElement("button");
-      b.type = "button"; b.className = "vq-ex" + (r && r.st !== "given" ? " " + r.st : ""); b.dataset.i = i;
-      const f = document.createElement("span");
-      f.className = "vq-exf"; f.append(label);
-      const sm = document.createElement("small"); sm.textContent = zh; f.append(sm);
-      const main = document.createElement("span");
-      main.className = "vq-exm";
+      const b = $$(".vq-back")[i];
+      b.textContent = "";
+      b.className = "vq-face vq-back vq-ex" + (r && r.st !== "given" ? " " + r.st : "");
       const head = document.createElement("span");
       head.className = "vq-exh";
       const w = document.createElement("span");
@@ -821,11 +818,9 @@ function init() {
         if (p.hl) { const bb = document.createElement("b"); bb.textContent = p.text; ex.append(bb); } else ex.append(p.text);
       }
       if (!text) ex.textContent = "（還沒有例句）";
-      main.append(head, ex);
-      b.append(f, main);
-      box.append(b);
+      b.append(head, ex);
     });
-    box.hidden = false;
+    vqFlip(true, instant);
   }
 
   const hiliteRow = (i) => $$(".vq-ex").forEach((el) => el.classList.toggle("speaking", Number(el.dataset.i) === i));
@@ -872,7 +867,7 @@ function init() {
     if (vq.done) speakExamples(); else speakParts([verbSay(c, vq.form)]);
   };
   $("#vq-word").onclick = () => { const c = vq.card; if (c) speakParts([verbSay(c, vq.form)]); };
-  $("#vq-res").addEventListener("click", (e) => {
+  $("#vq-rows").addEventListener("click", (e) => {
     const b = e.target.closest(".vq-ex");
     if (b) speakExamples(Number(b.dataset.i));
   });

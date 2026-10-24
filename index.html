@@ -14,7 +14,7 @@
   <link rel="manifest" href="manifest.json">
   <link rel="icon" type="image/png" href="icons/icon-192.png">
   <link rel="apple-touch-icon" href="icons/icon-192.png">
-  <link rel="stylesheet" href="style.css?v=14">
+  <link rel="stylesheet" href="style.css?v=15">
 </head>
 <body>
   <!-- icon sprite -->
@@ -121,12 +121,11 @@
       <div id="vq-badge" class="vq-badge"></div>
       <h1 id="vq-word" class="word"></h1>
       <p id="vq-note" class="vq-note" hidden></p>
-      <div class="vq-rows">
-        <label class="vq-row"><span class="vq-lab">V1<small>原形</small></span><input id="vq-i0" data-i="0" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false" enterkeyhint="next"><small class="vq-fix" id="vq-f0" hidden></small></label>
-        <label class="vq-row"><span class="vq-lab">V2<small>過去式</small></span><input id="vq-i1" data-i="1" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false" enterkeyhint="next"><small class="vq-fix" id="vq-f1" hidden></small></label>
-        <label class="vq-row"><span class="vq-lab">V3<small>過去分詞</small></span><input id="vq-i2" data-i="2" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false" enterkeyhint="done"><small class="vq-fix" id="vq-f2" hidden></small></label>
+      <div class="vq-rows" id="vq-rows">
+        <div class="vq-row"><span class="vq-lab">V1<small>原形</small></span><div class="vq-flip"><div class="vq-face vq-front"><input id="vq-i0" data-i="0" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false" enterkeyhint="next"></div><button type="button" class="vq-face vq-back vq-ex" data-i="0" tabindex="-1"></button></div></div>
+        <div class="vq-row"><span class="vq-lab">V2<small>過去式</small></span><div class="vq-flip"><div class="vq-face vq-front"><input id="vq-i1" data-i="1" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false" enterkeyhint="next"></div><button type="button" class="vq-face vq-back vq-ex" data-i="1" tabindex="-1"></button></div></div>
+        <div class="vq-row"><span class="vq-lab">V3<small>過去分詞</small></span><div class="vq-flip"><div class="vq-face vq-front"><input id="vq-i2" data-i="2" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false" enterkeyhint="done"></div><button type="button" class="vq-face vq-back vq-ex" data-i="2" tabindex="-1"></button></div></div>
       </div>
-      <div id="vq-res" class="vq-res" hidden></div>
       <button class="link" id="vq-giveup" type="button">不會，直接看答案</button>
     </div>
 
@@ -291,6 +290,6 @@ resilient  She is resilient.
   </div>
 
   <script src="pwa.js" defer></script>
-  <script type="module" src="app.js?v=16"></script>
+  <script type="module" src="app.js?v=17"></script>
 </body>
 </html>
