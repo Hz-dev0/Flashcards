@@ -318,12 +318,12 @@ function init() {
     const { n, k } = counts();
     $("#h-new").textContent = n;
     $("#h-known").textContent = k;
-    $("#h-total").textContent = n + k;
     $("#h-verbs").textContent = state.verbs.size;
     $("#h-learn").disabled = n === 0;
     $("#h-review").disabled = k === 0;
     const empty = $("#h-empty");
     empty.hidden = state.cards.size > 0;
+    $("#h-empty-import").hidden = !state.ready || state.cards.size > 0;
     empty.textContent = state.ready ? "還沒有字卡，先匯入一批吧。" : "載入中…";
     renderSync();
     if (current === "manage") refreshManage();
@@ -343,8 +343,9 @@ function init() {
   $("#h-learn").onclick = () => startStudy("new");
   $("#h-review").onclick = () => startStudy("known");
   $("#h-verb").onclick = () => { show("verb"); vqRefresh(); };
-  $("#h-manage").onclick = () => { mg.q = ""; $("#m-q").value = ""; mg.limit = PAGE; show("manage"); renderManage(); };
-  $("#h-import").onclick = () => { show("import"); updatePreview(); };
+  const openManage = () => { stopSpeech(); mg.q = ""; $("#m-q").value = ""; mg.limit = PAGE; show("manage"); renderManage(); };
+  $("#st-manage").onclick = openManage;
+  $("#h-empty-import").onclick = () => { show("import"); updatePreview(); };
   $("#h-settings").onclick = () => { fillSettings(); show("settings"); };
   $$("[data-back]").forEach((b) => b.addEventListener("click", () => { stopSpeech(); clearTimeout(vq.timer); show("home"); renderHome(); }));
 
@@ -384,6 +385,7 @@ function init() {
   // 大字單字：左上角標序號（像平方的小數字）
   function setWord(el, text, no) {
     el.textContent = "";
+    el.classList.remove("sn-on");          // 換卡就先藏起來，點單字才顯示
     if (no) { const sup = document.createElement("span"); sup.className = "sn"; sup.textContent = no; sup.title = "序號"; el.append(sup); }
     el.append(text);
   }
@@ -505,15 +507,16 @@ function init() {
   };
   $("#a-keep").onclick = () => act("keep");
   $("#st-speak").onclick = () => playCard();
-  $("#c-word").onclick = () => { const c = state.current; if (c) playCard([c.word]); };
+  $("#c-word").onclick = () => { const c = state.current; if (c) { $("#c-word").classList.toggle("sn-on"); playCard([c.word]); } };
   $("#c-example").onclick = () => { const c = state.current; if (c && c.example) playCard([c.example]); };
   // 播放模式：關 → 連播 → 單字循環 → 關（點擊切換）
-  const MODE_TXT = { off: "連播開啟", next: "關閉連播", loop: "單字循環" };
+  const MODE_TXT = { off: "連播", next: "連播", loop: "循環" };
   const curMode = () => (!settings.autoNext ? "off" : settings.loop ? "loop" : "next");
   function renderMode() {
     const m = curMode();
     const b = $("#st-mode");
     b.dataset.mode = m;
+    b.dataset.on = m === "off" ? "0" : "1";
     $("#st-mode-txt").textContent = MODE_TXT[m];
   }
   $("#st-mode").onclick = () => {
@@ -1012,7 +1015,7 @@ function init() {
     if (!c) return;
     if (vq.done) speakExamples(); else speakParts([verbSay(c, vq.form)]);
   };
-  $("#vq-word").onclick = () => { const c = vq.card; if (c) speakParts([verbSay(c, vq.form)]); };
+  $("#vq-word").onclick = () => { const c = vq.card; if (c) { $("#vq-word").classList.toggle("sn-on"); speakParts([verbSay(c, vq.form)]); } };
   $("#vq-rows").addEventListener("click", (e) => {
     const b = e.target.closest(".vq-ex");
     if (b) speakExamples(Number(b.dataset.i));

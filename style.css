@@ -312,5 +312,14 @@ textarea.bulk { min-height: 60vh; width: 100%; font-family: ui-monospace, "Casca
 .vm-chk { display: flex; flex-direction: column; align-items: center; gap: 3px; }
 .vm-no { font-size: 10px; line-height: 1; color: var(--muted); font-variant-numeric: tabular-nums; }
 
-/* 大字單字上方一行的序號（單字維持置中） */
-.word .sn { display: block; font-size: 0.24em; font-weight: 500; letter-spacing: 0; line-height: 1.2; margin-bottom: 0.35em; color: var(--muted); font-variant-numeric: tabular-nums; }
+/* 序號：平常隱藏，點單字才浮現在單字正上方（不佔版面，單字維持置中） */
+.word { position: relative; }
+.word .sn { position: absolute; left: 0; right: 0; top: -0.2em; text-align: center; font-size: 0.24em; font-weight: 500; letter-spacing: 0; line-height: 1; color: var(--muted); font-variant-numeric: tabular-nums; opacity: 0; transition: opacity 0.18s; pointer-events: none; }
+.word.sn-on .sn { opacity: 1; }
+
+/* 學習／三態右上角：窄螢幕不換行 */
+.bar .vq-tools { flex: none; }
+#st-progress, #vq-score { white-space: nowrap; min-width: 0; overflow: hidden; text-overflow: ellipsis; font-size: 13px; }
+.vq-tools .icon.txt { white-space: nowrap; }
+.vq-tools .icon.quiet { width: 34px; }
+@media (max-width: 380px) { .vq-tools .icon.quiet { width: 30px; } .vq-tools .icon.txt { padding: 0 5px; } .bar-sep { margin: 0 1px; } }

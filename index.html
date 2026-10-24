@@ -14,7 +14,7 @@
   <link rel="manifest" href="manifest.json">
   <link rel="icon" type="image/png" href="icons/icon-192.png">
   <link rel="apple-touch-icon" href="icons/icon-192.png">
-  <link rel="stylesheet" href="style.css?v=20">
+  <link rel="stylesheet" href="style.css?v=21">
 </head>
 <body>
   <!-- icon sprite -->
@@ -54,7 +54,7 @@
     </header>
     <div class="home">
       <button class="row" id="h-learn" disabled>
-        <span class="row-title">學習</span>
+        <span class="row-title">學習單字</span>
         <span class="row-sub"><b id="h-new">0</b> 張待學</span>
       </button>
       <button class="row" id="h-review" disabled>
@@ -65,15 +65,9 @@
         <span class="row-title">動詞三態</span>
         <span class="row-sub"><b id="h-verbs">0</b> 個動詞</span>
       </button>
-      <button class="row" id="h-manage">
-        <span class="row-title sm">管理字卡</span>
-        <span class="row-sub"><b id="h-total">0</b> 張</span>
-      </button>
-      <button class="row" id="h-import">
-        <span class="row-title sm">匯入字卡</span>
-      </button>
     </div>
     <p id="h-empty" class="muted center" hidden></p>
+    <button class="btn" id="h-empty-import" hidden>匯入字卡</button>
   </section>
 
   <!-- 學習 / 複習 -->
@@ -81,11 +75,13 @@
     <header class="bar">
       <button class="icon" data-back aria-label="返回"><svg class="ic"><use href="#i-back"/></svg></button>
       <span id="st-progress" class="muted"></span>
-      <div class="bar-r">
-        <button type="button" class="mode" id="st-mode" data-mode="off" title="點擊切換：關 → 連播 → 單字循環" aria-label="播放模式"><span id="st-mode-txt">連播 關</span></button>
+      <div class="bar-r vq-tools">
+        <button type="button" class="chip" id="st-mode" data-on="0" title="點擊切換：關 → 連播 → 單字循環" aria-label="播放模式"><span id="st-mode-txt">連播</span></button>
         <button class="icon quiet" id="st-gear" aria-label="練習範圍"><svg class="ic"><use href="#i-gear"/></svg></button>
         <button class="icon quiet" id="a-edit" aria-label="編輯這張卡"><svg class="ic"><use href="#i-edit"/></svg></button>
-        <button class="icon del" id="a-del" aria-label="刪除">刪除</button>
+        <span class="bar-sep" aria-hidden="true"></span>
+        <button class="icon txt danger" id="a-del" aria-label="刪除">刪除</button>
+        <button class="icon txt" id="st-manage">管理</button>
       </div>
     </header>
     <div id="stage" class="stage">
@@ -323,6 +319,6 @@ resilient  She is resilient.
   </div>
 
   <script src="pwa.js" defer></script>
-  <script type="module" src="app.js?v=21"></script>
+  <script type="module" src="app.js?v=22"></script>
 </body>
 </html>
