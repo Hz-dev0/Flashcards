@@ -579,12 +579,16 @@ function init() {
 
   const vqLook = () => settings.vmode === "look";
   function vqRenderMode() {
-    $("#vq-mode").textContent = vqLook() ? "純看" : "測驗";
-    $("#vq-mode").title = "點擊切換：測驗 ⇄ 純看";
+    // 按鈕顯示「點下去會切到的模式」：測驗中顯示「純看」，純看中顯示「測驗」
+    const to = vqLook() ? "測驗" : "純看";
+    $("#vq-mode-txt").textContent = to;
+    $("#vq-mode").title = $("#vq-mode").ariaLabel = `切換到${to}模式`;
     const a = $("#vq-auto");
     a.hidden = !vqLook();
-    a.dataset.mode = settings.vauto ? "next" : "off";
+    a.dataset.on = settings.vauto ? "1" : "0";
+    a.setAttribute("aria-pressed", String(!!settings.vauto));
     a.textContent = settings.vauto ? "連播 開" : "連播 關";
+    $("#vq-del").disabled = !(vq.card && vq.done);
     updateLock();
   }
   function vqScore() {
@@ -598,7 +602,7 @@ function init() {
     $("#vq-empty").hidden = has;
     $("#vq-quiz").hidden = !has;
     $("#vq-foot").hidden = !has;
-    if (!has) { vq.card = null; stopSpeech(); }
+    if (!has) { vq.card = null; stopSpeech(); $("#vq-del").disabled = true; }
     else if (!vq.card || !state.verbs.has(vq.card.id)) vqNext();
     vqScore();
   }
@@ -624,14 +628,14 @@ function init() {
     // 中文意思放在單字正下方（題目和結果都看得到）
     $("#vq-note").textContent = c.note || "";
     $("#vq-note").hidden = !c.note;
-    $("#vq-del").hidden = true;
+    $("#vq-del").disabled = true;
     $(".vq-rows").hidden = vqLook();
+    $("#vq-badge").hidden = vqLook();
     if (vqLook()) {                       // 純看：不用打字，直接顯示三態＋例句並朗讀
       vq.done = true;
-      $("#vq-badge").textContent = "純看 · 三態";
       $("#vq-word").textContent = showAlts(c.v1);
       $("#vq-giveup").hidden = true;
-      $("#vq-del").hidden = false;
+      $("#vq-del").disabled = false;
       $("#vq-go").textContent = "下一個";
       $("#vq-quiz").classList.remove("ok", "bad");
       renderExamples(c);
@@ -762,7 +766,7 @@ function init() {
     vqScore();
     document.activeElement?.blur?.();
     $("#vq-giveup").hidden = true;
-    $("#vq-del").hidden = false;
+    $("#vq-del").disabled = false;
     $("#vq-go").textContent = "下一題";
     renderExamples(c);
     fxResult(allOk);

@@ -14,7 +14,7 @@
   <link rel="manifest" href="manifest.json">
   <link rel="icon" type="image/png" href="icons/icon-192.png">
   <link rel="apple-touch-icon" href="icons/icon-192.png">
-  <link rel="stylesheet" href="style.css?v=12">
+  <link rel="stylesheet" href="style.css?v=13">
 </head>
 <body>
   <!-- icon sprite -->
@@ -22,6 +22,7 @@
     <symbol id="i-back" viewBox="0 0 24 24"><path d="M15 18l-6-6 6-6"/></symbol>
     <symbol id="i-speaker" viewBox="0 0 24 24"><path d="M11 5L6 9H3v6h3l5 4V5z"/><path d="M15.5 8.5a5 5 0 010 7M18.5 6a9 9 0 010 12"/></symbol>
     <symbol id="i-edit" viewBox="0 0 24 24"><path d="M4 20h4L19 9l-4-4L4 16v4z"/><path d="M13.5 6.5l4 4"/></symbol>
+    <symbol id="i-swap" viewBox="0 0 24 24"><path d="M7 4L3 8l4 4M3 8h14M17 20l4-4-4-4M21 16H7"/></symbol>
     <symbol id="i-sliders" viewBox="0 0 24 24"><path d="M4 6h9M17 6h3M4 12h3M11 12h9M4 18h11M19 18h1"/><circle cx="15" cy="6" r="2"/><circle cx="9" cy="12" r="2"/><circle cx="17" cy="18" r="2"/></symbol>
   </svg>
 
@@ -101,7 +102,13 @@
     <header class="bar">
       <button class="icon" data-back aria-label="返回"><svg class="ic"><use href="#i-back"/></svg></button>
       <span id="vq-score" class="muted"></span>
-      <span class="bar-r"><button type="button" class="mode" id="vq-mode">測驗</button><button type="button" class="mode" id="vq-auto" data-mode="off" hidden>連播 關</button><button class="icon txt" id="vq-bulk">管理</button></span>
+      <span class="bar-r vq-tools">
+        <button type="button" class="chip" id="vq-auto" data-on="0" hidden>連播 關</button>
+        <button type="button" class="chip" id="vq-mode"><svg class="ic"><use href="#i-swap"/></svg><span id="vq-mode-txt">純看</span></button>
+        <span class="bar-sep" aria-hidden="true"></span>
+        <button type="button" class="icon txt danger" id="vq-del" disabled>刪除</button>
+        <button type="button" class="icon txt" id="vq-bulk">管理</button>
+      </span>
     </header>
 
     <div id="vq-empty" class="center-col" hidden>
@@ -121,7 +128,6 @@
       </div>
       <div id="vq-res" class="vq-res" hidden></div>
       <button class="link" id="vq-giveup" type="button">不會，直接看答案</button>
-      <button class="link del-link" id="vq-del" type="button" hidden>這個背完了，刪除</button>
     </div>
 
     <footer class="actions vq-act" id="vq-foot" hidden>
@@ -285,6 +291,6 @@ resilient  She is resilient.
   </div>
 
   <script src="pwa.js" defer></script>
-  <script type="module" src="app.js?v=13"></script>
+  <script type="module" src="app.js?v=14"></script>
 </body>
 </html>

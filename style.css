@@ -258,10 +258,22 @@ textarea.bulk { min-height: 60vh; width: 100%; font-family: ui-monospace, "Casca
 }
 
 .vq-note { margin: -0.4rem 0 0; font-size: 1.2rem; font-weight: 600; color: var(--fg2); }
-.bar .mode { margin: 0 2px; padding: 0 10px; }
+/* 動詞三態右上角工具列 */
+.vq-tools { gap: 4px; }
+.chip { display: inline-flex; align-items: center; gap: 5px; height: 32px; padding: 0 12px; border: 0; border-radius: 16px; background: color-mix(in srgb, var(--line) 80%, transparent); color: var(--fg); font: inherit; font-size: 14px; font-weight: 600; cursor: pointer; user-select: none; white-space: nowrap; transition: background 0.15s, color 0.15s; }
+.chip:hover { background: var(--line); }
+.chip:active { transform: scale(0.97); }
+.chip .ic { width: 15px; height: 15px; stroke-width: 2.2; color: var(--fg2); }
+.chip[data-on="1"] { background: var(--accent); color: var(--accent-fg); }
+.bar-sep { width: 1px; height: 18px; margin: 0 2px; background: var(--line); }
+.vq-tools .icon.txt { height: 36px; padding: 0 8px; font-size: 14px; font-weight: 500; color: var(--fg2); }
+.vq-tools .icon.txt:hover { color: var(--fg); }
+.vq-tools .icon.danger { color: var(--danger); }
+.vq-tools .icon.danger:hover { color: var(--danger); background: color-mix(in srgb, var(--danger) 12%, transparent); }
+.vq-tools .icon:disabled { opacity: 0.3; cursor: default; background: none; }
+@media (max-width: 380px) { .chip { padding: 0 9px; } .vq-tools { gap: 2px; } .vq-tools .icon.txt { padding: 0 6px; } }
 #vq-score { font-size: 13px; }
 
-.del-link { color: var(--danger); }
 .vm-list { display: flex; flex-direction: column; margin-top: 4px; }
 .vm-row { display: grid; grid-template-columns: 28px 1fr; gap: 6px 10px; align-items: center; padding: 11px 2px; border-bottom: 1px solid var(--line); cursor: pointer; }
 .vm-row:has(input:checked) { background: color-mix(in srgb, var(--danger) 10%, transparent); }
