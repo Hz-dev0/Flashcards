@@ -14,7 +14,7 @@
   <link rel="manifest" href="manifest.json">
   <link rel="icon" type="image/png" href="icons/icon-192.png">
   <link rel="apple-touch-icon" href="icons/icon-192.png">
-  <link rel="stylesheet" href="style.css?v=22">
+  <link rel="stylesheet" href="style.css?v=23">
 </head>
 <body>
   <!-- icon sprite -->
@@ -25,6 +25,9 @@
     <symbol id="i-swap" viewBox="0 0 24 24"><path d="M7 4L3 8l4 4M3 8h14M17 20l4-4-4-4M21 16H7"/></symbol>
     <symbol id="i-gear" viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 00.33 1.82l.06.06a2 2 0 010 2.83 2 2 0 01-2.83 0l-.06-.06a1.65 1.65 0 00-1.82-.33 1.65 1.65 0 00-1 1.51V21a2 2 0 01-2 2 2 2 0 01-2-2v-.09A1.65 1.65 0 009 19.4a1.65 1.65 0 00-1.82.33l-.06.06a2 2 0 01-2.83 0 2 2 0 010-2.83l.06-.06a1.65 1.65 0 00.33-1.82 1.65 1.65 0 00-1.51-1H3a2 2 0 01-2-2 2 2 0 012-2h.09A1.65 1.65 0 004.6 9a1.65 1.65 0 00-.33-1.82l-.06-.06a2 2 0 010-2.83 2 2 0 012.83 0l.06.06a1.65 1.65 0 001.82.33H9a1.65 1.65 0 001-1.51V3a2 2 0 012-2 2 2 0 012 2v.09a1.65 1.65 0 001 1.51 1.65 1.65 0 001.82-.33l.06-.06a2 2 0 012.83 0 2 2 0 010 2.83l-.06.06a1.65 1.65 0 00-.33 1.82V9a1.65 1.65 0 001.51 1H21a2 2 0 012 2 2 2 0 01-2 2h-.09a1.65 1.65 0 00-1.51 1z"/></symbol>
     <symbol id="i-sliders" viewBox="0 0 24 24"><path d="M4 6h9M17 6h3M4 12h3M11 12h9M4 18h11M19 18h1"/><circle cx="15" cy="6" r="2"/><circle cx="9" cy="12" r="2"/><circle cx="17" cy="18" r="2"/></symbol>
+    <symbol id="i-more" viewBox="0 0 24 24"><circle cx="5" cy="12" r="1.2"/><circle cx="12" cy="12" r="1.2"/><circle cx="19" cy="12" r="1.2"/></symbol>
+    <symbol id="i-list" viewBox="0 0 24 24"><path d="M8 6h12M8 12h12M8 18h12M4 6h.01M4 12h.01M4 18h.01"/></symbol>
+    <symbol id="i-trash" viewBox="0 0 24 24"><path d="M4 7h16M10 11v6M14 11v6M6 7l1 13h10l1-13M9 7V4h6v3"/></symbol>
   </svg>
 
   <noscript><p style="padding:24px">需要啟用 JavaScript。</p></noscript>
@@ -77,11 +80,16 @@
       <span id="st-progress" class="muted"></span>
       <div class="bar-r vq-tools">
         <button type="button" class="chip" id="st-mode" data-on="0" title="點擊切換：關 → 連播 → 單字循環" aria-label="播放模式"><span id="st-mode-txt">連播</span></button>
-        <button class="icon quiet" id="st-gear" aria-label="練習範圍"><svg class="ic"><use href="#i-gear"/></svg></button>
-        <button class="icon quiet" id="a-edit" aria-label="編輯這張卡"><svg class="ic"><use href="#i-edit"/></svg></button>
-        <span class="bar-sep" aria-hidden="true"></span>
-        <button class="icon txt danger" id="a-del" aria-label="刪除">刪除</button>
-        <button class="icon txt" id="st-manage">管理</button>
+        <div class="menu">
+          <button type="button" class="icon" data-menu aria-haspopup="menu" aria-expanded="false" aria-label="更多"><svg class="ic"><use href="#i-more"/></svg></button>
+          <div class="menu-pop" role="menu" hidden>
+            <button type="button" class="mi" role="menuitem" id="st-gear"><svg class="ic"><use href="#i-gear"/></svg>練習範圍<span class="mi-tag">已啟用</span></button>
+            <button type="button" class="mi" role="menuitem" id="a-edit"><svg class="ic"><use href="#i-edit"/></svg>編輯這張卡</button>
+            <button type="button" class="mi" role="menuitem" id="st-manage"><svg class="ic"><use href="#i-list"/></svg>管理字卡</button>
+            <div class="mi-sep" aria-hidden="true"></div>
+            <button type="button" class="mi danger" role="menuitem" id="a-del"><svg class="ic"><use href="#i-trash"/></svg>刪除這張卡</button>
+          </div>
+        </div>
       </div>
     </header>
     <div id="stage" class="stage">
@@ -103,10 +111,15 @@
       <span class="bar-r vq-tools">
         <button type="button" class="chip" id="vq-auto" data-on="0" aria-pressed="false" hidden>連播</button>
         <button type="button" class="chip" id="vq-mode"><svg class="ic"><use href="#i-swap"/></svg><span id="vq-mode-txt">純看</span></button>
-        <button type="button" class="icon quiet" id="vq-gear" aria-label="練習範圍"><svg class="ic"><use href="#i-gear"/></svg></button>
-        <span class="bar-sep" aria-hidden="true"></span>
-        <button type="button" class="icon txt danger" id="vq-del" disabled>刪除</button>
-        <button type="button" class="icon txt" id="vq-bulk">管理</button>
+        <span class="menu">
+          <button type="button" class="icon" data-menu aria-haspopup="menu" aria-expanded="false" aria-label="更多"><svg class="ic"><use href="#i-more"/></svg></button>
+          <span class="menu-pop" role="menu" hidden>
+            <button type="button" class="mi" role="menuitem" id="vq-gear"><svg class="ic"><use href="#i-gear"/></svg>練習範圍<span class="mi-tag">已啟用</span></button>
+            <button type="button" class="mi" role="menuitem" id="vq-bulk"><svg class="ic"><use href="#i-list"/></svg>管理動詞</button>
+            <span class="mi-sep" aria-hidden="true"></span>
+            <button type="button" class="mi danger" role="menuitem" id="vq-del" disabled><svg class="ic"><use href="#i-trash"/></svg>刪除這個動詞</button>
+          </span>
+        </span>
       </span>
     </header>
 
@@ -319,6 +332,6 @@ resilient  She is resilient.
   </div>
 
   <script src="pwa.js" defer></script>
-  <script type="module" src="app.js?v=22"></script>
+  <script type="module" src="app.js?v=23"></script>
 </body>
 </html>

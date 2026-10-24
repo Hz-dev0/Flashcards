@@ -40,11 +40,45 @@ function show(name) {
       history.back();                  // 用頁面內按鈕回首頁時，把墊的那筆紀錄收掉
     }
   } catch {}
+  closeMenus();
   current = name;
   for (const v of VIEWS) $(`#v-${v}`).hidden = v !== name;
   window.scrollTo(0, 0);
   updateLock();
 }
+
+// 右上角「⋯」下拉選單：點按鈕開關；點選項、點外面、按 Esc 都會收起
+// 選單開著時，連播會先暫停（不然卡片自己換掉，選單上的「編輯／刪除」就點到下一張）；
+// 沒選任何項目就關掉的話，再接著播。
+let menuOpen = false;
+function closeMenus(except, picked) {
+  document.querySelectorAll(".menu-pop").forEach((pop) => {
+    if (pop === except || pop.hidden) return;
+    pop.hidden = true;
+    pop.parentElement.querySelector("[data-menu]")?.setAttribute("aria-expanded", "false");
+  });
+  if (menuOpen && !except) { menuOpen = false; document.dispatchEvent(new CustomEvent("menuclose", { detail: { picked: !!picked } })); }
+}
+document.addEventListener("click", (e) => {
+  const btn = e.target.closest?.("[data-menu]");
+  if (btn) {
+    const pop = btn.parentElement.querySelector(".menu-pop");
+    const wasOpen = !pop.hidden;
+    closeMenus(wasOpen ? undefined : pop);
+    if (wasOpen) return;
+    pop.hidden = false;
+    btn.setAttribute("aria-expanded", "true");
+    if (!menuOpen) { menuOpen = true; document.dispatchEvent(new CustomEvent("menuopen")); }
+    if (!pop.hidden) pop.querySelector(".mi:not(:disabled)")?.focus({ preventScroll: true });
+    return;
+  }
+  if (e.target.closest?.(".menu-pop")) { if (!e.target.closest(".mi")?.disabled) setTimeout(() => closeMenus(undefined, true), 0); return; }
+  closeMenus();
+});
+document.addEventListener("keydown", (e) => {
+  if (e.key !== "Escape" || ![...document.querySelectorAll(".menu-pop")].some((p) => !p.hidden)) return;
+  e.stopImmediatePropagation(); closeMenus();
+}, true);
 
 // 連播時保持螢幕不熄滅（鎖屏或切到背景時，瀏覽器會中斷語音合成）
 let wakeLock = null;
@@ -1007,6 +1041,16 @@ function init() {
   };
   document.addEventListener("keydown", (e) => {
     if (current === "verb" && vqLook() && !sheetOpen() && e.key === "ArrowRight" && !/^(INPUT|TEXTAREA|SELECT)$/.test(e.target?.tagName || "")) vqNext();
+  });
+  // 選單開著 → 暫停自動換卡／播放；沒選項目就關 → 照原本設定繼續
+  document.addEventListener("menuopen", () => {
+    if (current !== "study" && current !== "verb") return;
+    stopSpeech(); clearAdv(); clearTimeout(vq.timer); vq.run++;
+  });
+  document.addEventListener("menuclose", (e) => {
+    if (e.detail.picked || editing) return;
+    if (current === "study" && settings.autoNext && state.current) playCard();
+    else if (current === "verb" && vqLook() && settings.vauto && vq.done && vq.card) speakExamples();
   });
   $("#vq-go").onclick = () => vqSubmit();
   $("#vq-giveup").onclick = () => vqSubmit(true);

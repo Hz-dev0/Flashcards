@@ -332,3 +332,28 @@ textarea.bulk { min-height: 60vh; width: 100%; font-family: ui-monospace, "Casca
 #v-home .row-title { font-size: 1.9rem; }
 #v-home .row-sub { font-size: 1.05rem; }
 #h-empty-import { align-self: center; margin: 8px 0 16px; padding: 0 28px; }
+
+/* 右上角下拉選單：只留必要的，其餘收進「⋯」 */
+.menu { position: relative; display: inline-flex; }
+.menu > .icon { width: 40px; height: 40px; }
+.menu > .icon[aria-expanded="true"] { background: color-mix(in srgb, var(--line) 80%, transparent); color: var(--fg); }
+.menu > .icon[data-menu] { position: relative; }
+.menu:has(.mi[data-on="1"]) > .icon[data-menu]::after { content: ""; position: absolute; top: 9px; right: 9px; width: 7px; height: 7px; border-radius: 50%; background: var(--accent); border: 1.5px solid var(--bg); }
+.menu-pop {
+  position: absolute; top: calc(100% + 4px); right: 0; z-index: 30;
+  min-width: 180px; padding: 6px; display: flex; flex-direction: column;
+  background: var(--bg); border: 1px solid var(--line); border-radius: 14px;
+  box-shadow: 0 8px 28px rgba(0,0,0,0.14); transform-origin: top right;
+  animation: menu-in 0.12s ease;
+}
+@keyframes menu-in { from { opacity: 0; transform: scale(0.96) translateY(-4px); } to { opacity: 1; transform: none; } }
+.mi { display: flex; align-items: center; gap: 12px; width: 100%; height: 44px; padding: 0 12px; border: 0; border-radius: 10px; background: none; color: var(--fg); font: inherit; font-size: 15px; font-weight: 500; text-align: left; white-space: nowrap; cursor: pointer; }
+.mi .ic { width: 18px; height: 18px; color: var(--fg2); flex: none; }
+.mi:hover, .mi:focus-visible { background: color-mix(in srgb, var(--line) 70%, transparent); }
+.mi.danger, .mi.danger .ic { color: var(--danger); }
+.mi.danger:hover { background: color-mix(in srgb, var(--danger) 12%, transparent); }
+.mi:disabled { opacity: 0.35; cursor: default; background: none; }
+.mi-tag { display: none; margin-left: auto; padding: 1px 8px; border-radius: 10px; font-size: 12px; background: var(--accent); color: var(--accent-fg); }
+.mi[data-on="1"] .mi-tag { display: inline; }
+.mi-sep { display: block; height: 1px; margin: 5px 6px; background: var(--line); }
+@media (prefers-reduced-motion: reduce) { .menu-pop { animation: none; } }
