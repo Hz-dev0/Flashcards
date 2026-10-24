@@ -381,8 +381,14 @@ function init() {
     return null;
   }
 
+  // 大字單字：左上角標序號（像平方的小數字）
+  function setWord(el, text, no) {
+    el.textContent = "";
+    if (no) { const sup = document.createElement("sup"); sup.className = "sn"; sup.textContent = no; sup.title = "序號"; el.append(sup); }
+    el.append(text);
+  }
   function renderCard(c) {
-    $("#c-word").textContent = c.word;
+    setWord($("#c-word"), c.word, serialMap("word").get(c.id));
     const ex = $("#c-example");
     ex.textContent = "";
     for (const p of splitHighlight(c.example, c.word)) {
@@ -789,7 +795,7 @@ function init() {
     $("#vq-badge").hidden = vqLook();
     if (vqLook()) {                       // 純看：不用打字，直接顯示三態＋例句並朗讀
       vq.done = true;
-      $("#vq-word").textContent = showAlts(c.v1);
+      setWord($("#vq-word"), showAlts(c.v1), serialMap("verb").get(c.id));
       $("#vq-giveup").hidden = true;
       $("#vq-del").disabled = false;
       $("#vq-go").textContent = "下一個";
@@ -800,7 +806,7 @@ function init() {
       return;
     }
     $("#vq-badge").textContent = `${FORMS[f][1]} · ${FORMS[f][2]}`;
-    $("#vq-word").textContent = showAlts(c[FORMS[f][0]]);
+    setWord($("#vq-word"), showAlts(c[FORMS[f][0]]), serialMap("verb").get(c.id));
     for (let i = 0; i < 3; i++) {
       const el = vqInput(i);
       el.className = i === f ? "given" : "";
@@ -1082,6 +1088,7 @@ function init() {
     const list = vmList();
     $("#vm-count").textContent = `${state.verbs.size} 個`;
     const frag = document.createDocumentFragment();
+    const sn = serialMap("verb");
     for (const c of list) {
       const row = document.createElement("label");
       row.className = "vm-row";
@@ -1089,6 +1096,8 @@ function init() {
       cb.type = "checkbox"; cb.dataset.id = c.id; cb.checked = vm.sel.has(c.id);
       const main = document.createElement("span");
       main.className = "vm-main";
+      const no = document.createElement("span"); no.className = "vm-no"; no.textContent = sn.get(c.id);
+      main.append(no);
       const b = document.createElement("b"); b.textContent = c.v1;
       main.append(b, ` · ${c.v2 || "?"} · ${c.v3 || "?"}`);
       if (c.note) { const sm = document.createElement("small"); sm.textContent = c.note; main.append(sm); }
@@ -1167,11 +1176,15 @@ function init() {
     b.type = "button"; b.className = "mbtn " + cls; b.dataset.act = act; b.textContent = text;
     return b;
   }
-  function mkRow(c) {
+  function mkRow(c, no) {
     const tr = document.createElement("tr");
     tr.dataset.id = c.id;
+    const wordCell = mkCell("c-word", mkField("input", "word", c.word, "單字"));
+    const sn = document.createElement("span");      // 序號（跟「文字編輯」的編號一樣，練習範圍用）
+    sn.className = "m-no"; sn.textContent = no; sn.title = "序號";
+    wordCell.append(sn);
     tr.append(
-      mkCell("c-word", mkField("input", "word", c.word, "單字")),
+      wordCell,
       mkCell("c-example", mkField("textarea", "example", c.example, "例句")),
       mkCell("c-note", mkField("input", "note", c.note, "備註")),
       mkCell("c-status", mkBtn("st", c.status === "known" ? "已會" : "待學", "toggle")),
@@ -1189,7 +1202,8 @@ function init() {
       .sort((a, b) => (a.createdAt || 0) - (b.createdAt || 0));
     $("#m-count").textContent = `${list.length} 張`;
     const frag = document.createDocumentFragment();
-    list.slice(0, mg.limit).forEach((c) => frag.append(mkRow(c)));
+    const sn = serialMap("word");
+    list.slice(0, mg.limit).forEach((c) => frag.append(mkRow(c, sn.get(c.id))));
     mBody.textContent = "";
     mBody.append(frag);
     $("#m-more").hidden = list.length <= mg.limit;
