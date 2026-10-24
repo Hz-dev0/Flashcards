@@ -6,6 +6,13 @@ let swError = "";
 if ("serviceWorker" in navigator) {
   window.addEventListener("load", () => {
     navigator.serviceWorker.register("./sw.js").catch((e) => { swError = String(e && e.message || e); });
+    // 載入完後，把這次用到的資源交給 service worker 補進離線快取
+    navigator.serviceWorker.ready.then((reg) => {
+      setTimeout(() => {
+        const urls = [location.href.split("#")[0], ...performance.getEntriesByType("resource").map((r) => r.name)];
+        reg.active?.postMessage({ type: "warm", urls });
+      }, 2500);
+    }).catch(() => {});
   });
 }
 

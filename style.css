@@ -323,3 +323,12 @@ textarea.bulk { min-height: 60vh; width: 100%; font-family: ui-monospace, "Casca
 .vq-tools .icon.txt { white-space: nowrap; }
 .vq-tools .icon.quiet { width: 34px; }
 @media (max-width: 380px) { .vq-tools .icon.quiet { width: 30px; } .vq-tools .icon.txt { padding: 0 5px; } .bar-sep { margin: 0 1px; } }
+
+/* 首頁：三個入口平分整個畫面高度 */
+#v-home .home { flex: 1; display: flex; flex-direction: column; margin-top: 8px; margin-bottom: 8px; }
+#v-home .row { flex: 1; align-items: center; padding: 0 2px; min-height: 96px; transition: background 0.12s; }
+#v-home .row:last-child { border-bottom: 0; }
+#v-home .row:not(:disabled):active { background: color-mix(in srgb, var(--line) 55%, transparent); }
+#v-home .row-title { font-size: 1.9rem; }
+#v-home .row-sub { font-size: 1.05rem; }
+#h-empty-import { align-self: center; margin: 8px 0 16px; padding: 0 28px; }
