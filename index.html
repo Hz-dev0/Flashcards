@@ -14,7 +14,7 @@
   <link rel="manifest" href="manifest.json">
   <link rel="icon" type="image/png" href="icons/icon-192.png">
   <link rel="apple-touch-icon" href="icons/icon-192.png">
-  <link rel="stylesheet" href="style.css?v=16">
+  <link rel="stylesheet" href="style.css?v=17">
 </head>
 <body>
   <!-- icon sprite -->
@@ -23,6 +23,7 @@
     <symbol id="i-speaker" viewBox="0 0 24 24"><path d="M11 5L6 9H3v6h3l5 4V5z"/><path d="M15.5 8.5a5 5 0 010 7M18.5 6a9 9 0 010 12"/></symbol>
     <symbol id="i-edit" viewBox="0 0 24 24"><path d="M4 20h4L19 9l-4-4L4 16v4z"/><path d="M13.5 6.5l4 4"/></symbol>
     <symbol id="i-swap" viewBox="0 0 24 24"><path d="M7 4L3 8l4 4M3 8h14M17 20l4-4-4-4M21 16H7"/></symbol>
+    <symbol id="i-gear" viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 00.33 1.82l.06.06a2 2 0 010 2.83 2 2 0 01-2.83 0l-.06-.06a1.65 1.65 0 00-1.82-.33 1.65 1.65 0 00-1 1.51V21a2 2 0 01-2 2 2 2 0 01-2-2v-.09A1.65 1.65 0 009 19.4a1.65 1.65 0 00-1.82.33l-.06.06a2 2 0 01-2.83 0 2 2 0 010-2.83l.06-.06a1.65 1.65 0 00.33-1.82 1.65 1.65 0 00-1.51-1H3a2 2 0 01-2-2 2 2 0 012-2h.09A1.65 1.65 0 004.6 9a1.65 1.65 0 00-.33-1.82l-.06-.06a2 2 0 010-2.83 2 2 0 012.83 0l.06.06a1.65 1.65 0 001.82.33H9a1.65 1.65 0 001-1.51V3a2 2 0 012-2 2 2 0 012 2v.09a1.65 1.65 0 001 1.51 1.65 1.65 0 001.82-.33l.06-.06a2 2 0 012.83 0 2 2 0 010 2.83l-.06.06a1.65 1.65 0 00-.33 1.82V9a1.65 1.65 0 001.51 1H21a2 2 0 012 2 2 2 0 01-2 2h-.09a1.65 1.65 0 00-1.51 1z"/></symbol>
     <symbol id="i-sliders" viewBox="0 0 24 24"><path d="M4 6h9M17 6h3M4 12h3M11 12h9M4 18h11M19 18h1"/><circle cx="15" cy="6" r="2"/><circle cx="9" cy="12" r="2"/><circle cx="17" cy="18" r="2"/></symbol>
   </svg>
 
@@ -82,6 +83,7 @@
       <span id="st-progress" class="muted"></span>
       <div class="bar-r">
         <button type="button" class="mode" id="st-mode" data-mode="off" title="點擊切換：關 → 連播 → 單字循環" aria-label="播放模式"><span id="st-mode-txt">連播 關</span></button>
+        <button class="icon quiet" id="st-gear" aria-label="練習範圍"><svg class="ic"><use href="#i-gear"/></svg></button>
         <button class="icon quiet" id="a-edit" aria-label="編輯這張卡"><svg class="ic"><use href="#i-edit"/></svg></button>
         <button class="icon del" id="a-del" aria-label="刪除">刪除</button>
       </div>
@@ -103,8 +105,9 @@
       <button class="icon" data-back aria-label="返回"><svg class="ic"><use href="#i-back"/></svg></button>
       <span id="vq-score" class="muted"></span>
       <span class="bar-r vq-tools">
-        <button type="button" class="chip" id="vq-auto" data-on="0" hidden>連播 關</button>
+        <button type="button" class="chip" id="vq-auto" data-on="0" aria-pressed="false" hidden>連播</button>
         <button type="button" class="chip" id="vq-mode"><svg class="ic"><use href="#i-swap"/></svg><span id="vq-mode-txt">純看</span></button>
+        <button type="button" class="icon quiet" id="vq-gear" aria-label="練習範圍"><svg class="ic"><use href="#i-gear"/></svg></button>
         <span class="bar-sep" aria-hidden="true"></span>
         <button type="button" class="icon txt danger" id="vq-del" disabled>刪除</button>
         <button type="button" class="icon txt" id="vq-bulk">管理</button>
@@ -269,6 +272,36 @@ resilient  She is resilient.
     </form>
   </div>
 
+  <!-- 練習範圍（序號） -->
+  <div id="rg" class="sheet" hidden role="dialog" aria-modal="true" aria-label="練習範圍">
+    <form id="rg-form" class="sheet-body">
+      <h2 class="sheet-title" id="rg-title">練習範圍</h2>
+      <label class="check"><input id="rg-on" type="checkbox"> 只練習指定序號範圍</label>
+      <div class="rg-fields">
+        <label class="field"><span>從第</span><input id="rg-from" type="number" inputmode="numeric" min="1" step="1" placeholder="1"></label>
+        <label class="field"><span>到第</span><input id="rg-to" type="number" inputmode="numeric" min="1" step="1"></label>
+      </div>
+      <p class="muted small" id="rg-hint"></p>
+      <p class="muted small">序號就是「文字編輯」裡每一行前面的編號。範圍內仍然是隨機出題；設定會存到雲端，換裝置也一樣。</p>
+      <div class="sheet-act">
+        <button type="button" class="btn" id="rg-cancel">取消</button>
+        <button type="submit" class="btn primary">套用</button>
+      </div>
+    </form>
+  </div>
+
+  <!-- 刪除確認 -->
+  <div id="cf" class="sheet" hidden role="alertdialog" aria-modal="true" aria-label="確認刪除">
+    <div class="sheet-body">
+      <h2 class="sheet-title" id="cf-title">確定要刪除嗎？</h2>
+      <p class="muted" id="cf-msg"></p>
+      <div class="sheet-act">
+        <button type="button" class="btn" id="cf-no">取消</button>
+        <button type="button" class="btn danger-fill" id="cf-yes">刪除</button>
+      </div>
+    </div>
+  </div>
+
   <!-- 學習中調整語速（長按／右鍵喇叭） -->
   <div id="rt" class="sheet" hidden role="dialog" aria-modal="true" aria-label="語速">
     <div class="sheet-body">
@@ -290,6 +323,6 @@ resilient  She is resilient.
   </div>
 
   <script src="pwa.js" defer></script>
-  <script type="module" src="app.js?v=17"></script>
+  <script type="module" src="app.js?v=18"></script>
 </body>
 </html>

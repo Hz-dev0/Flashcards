@@ -296,3 +296,11 @@ textarea.bulk { min-height: 60vh; width: 100%; font-family: ui-monospace, "Casca
 .vm-main small { display: block; color: var(--muted); font-size: 13px; }
 .vm-bar { position: sticky; bottom: 0; padding: 10px 0 max(10px, env(safe-area-inset-bottom)); margin-top: auto; background: var(--bg); }
 .vm-bar .btn { width: 100%; }
+
+/* 練習範圍／刪除確認 */
+.sheet-title { margin: 4px 0 6px; font-size: 1.15rem; font-weight: 700; }
+.rg-fields { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+.rg-fields input { font-size: 1.1rem; font-weight: 600; }
+.rg-fields input:disabled { opacity: 0.4; }
+.btn.danger-fill { background: var(--danger); border-color: var(--danger); color: #fff; }
+.icon.quiet[data-on="1"] { opacity: 1; color: var(--fg); background: color-mix(in srgb, var(--line) 80%, transparent); }

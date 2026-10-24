@@ -26,6 +26,8 @@ const TOP_VIEWS = ["setup", "auth", "home"];
 try { if (history.state?.sub) history.replaceState(null, ""); } catch {}
 window.addEventListener("popstate", () => {
   if (!current || TOP_VIEWS.includes(current)) return;
+  const open = ["#rg-cancel", "#cf-no", "#ed-cancel", "#rt-ok"].find((b) => !document.querySelector(b)?.closest(".sheet")?.hidden);
+  if (open) { try { history.pushState({ sub: true }, ""); } catch {} document.querySelector(open).click(); return; }
   const back = $(`#v-${current}`)?.querySelector("[data-back], #vm-back, #bk-back");
   if (back) back.click(); else show("home");
 });
@@ -189,6 +191,14 @@ function syncError(err) {
 /* ------------------------------------------------------------------ */
 /* 啟動                                                                 */
 /* ------------------------------------------------------------------ */
+const freshPrefs = () => ({ word: { on: false, from: 1, to: null }, verb: { on: false, from: 1, to: null } });
+const normPref = (p) => {
+  let from = Math.max(1, parseInt(p?.from, 10) || 1);
+  let to = p?.to ? Math.max(1, parseInt(p.to, 10) || 0) || null : null;
+  if (to && to < from) [from, to] = [to, from];
+  return { on: !!p?.on, from, to };
+};
+
 const configured = !!(firebaseConfig && firebaseConfig.apiKey && !/^YOUR_/.test(firebaseConfig.apiKey));
 
 if (!configured) {
@@ -211,7 +221,7 @@ function init() {
   }
 
   const state = {
-    uid: null, cards: new Map(), verbs: new Map(), gone: new Set(), unsub: null, ready: false, pending: false,
+    uid: null, cards: new Map(), verbs: new Map(), gone: new Set(), prefs: freshPrefs(), unsub: null, ready: false, pending: false,
     mode: "new", queue: [], idx: 0, current: null,
     stats: { keep: 0, del: 0, next: 0 },
   };
@@ -269,9 +279,14 @@ function init() {
       state.pending = snap.metadata.hasPendingWrites;
       snap.docChanges().forEach((ch) => {
         const id = ch.doc.id;
-        if (ch.type === "removed") { state.cards.delete(id); state.verbs.delete(id); if (id === "verbmeta") state.gone = new Set(); return; }
+        if (ch.type === "removed") { state.cards.delete(id); state.verbs.delete(id); if (id === "verbmeta") state.gone = new Set(); if (id === "prefs") { state.prefs = freshPrefs(); renderGears(); } return; }
         const data = ch.doc.data();
         if (data.type === "verbmeta") { state.gone = new Set(data.gone || []); return; }   // 記錄「刪掉的內建動詞」
+        if (data.type === "prefs") {                                                       // 練習範圍設定（雲端同步）
+          state.prefs = { word: normPref(data.word), verb: normPref(data.verb) };
+          renderGears();
+          return;
+        }
         // 動詞三態的卡不混進一般單字
         (data.type === "verb" ? state.verbs : state.cards).set(id, { id, ...data });
       });
@@ -290,7 +305,7 @@ function init() {
   }
   function detach() {
     if (state.unsub) { state.unsub(); state.unsub = null; }
-    state.uid = null; state.cards.clear(); state.verbs.clear(); state.gone = new Set(); state.ready = false;
+    state.uid = null; state.cards.clear(); state.verbs.clear(); state.gone = new Set(); state.prefs = freshPrefs(); state.ready = false;
   }
 
   /* ---------------- 首頁 ---------------- */
@@ -348,7 +363,7 @@ function init() {
 
   // 重新排出佇列（回傳是否有卡可看）
   function buildQueue() {
-    let list = [...state.cards.values()].filter(inMode);
+    let list = inRange("word", [...state.cards.values()]).filter(inMode);
     if (!list.length) return false;
     list = settings.shuffle ? shuffle(list) : list.sort((a, b) => (a.createdAt || 0) - (b.createdAt || 0));
     state.queue = list.map((c) => c.id);
@@ -477,7 +492,11 @@ function init() {
     if (swiped) { e.stopPropagation(); e.preventDefault(); swiped = false; }
   }, true);
 
-  $("#a-del").onclick = () => act("del");
+  $("#a-del").onclick = () => {
+    const c = state.current;
+    if (!c || current !== "study" || editing) return;
+    confirmDelete(`刪除「${c.word.length > 18 ? c.word.slice(0, 18) + "…" : c.word}」？`, "刪除後可以在下方提示按「復原」。", () => act("del"));
+  };
   $("#a-keep").onclick = () => act("keep");
   $("#st-speak").onclick = () => playCard();
   $("#c-word").onclick = () => { const c = state.current; if (c) playCard([c.word]); };
@@ -500,6 +519,126 @@ function init() {
     updateLock();
     if (settings.autoNext) playCard(); else clearAdv();
   };
+
+  /* ---------------- 練習範圍（依序號；設定存雲端） ---------------- */
+  // 序號 = 該類全部卡片依建立順序的第幾張，跟「文字編輯」裡的編號一致
+  function serialMap(kind) {
+    const arr = [...(kind === "verb" ? state.verbs : state.cards).values()].sort((a, b) => (a.createdAt || 0) - (b.createdAt || 0));
+    return new Map(arr.map((c, i) => [c.id, i + 1]));
+  }
+  function inRange(kind, list) {
+    const p = state.prefs[kind];
+    if (!p.on) return list;
+    const m = serialMap(kind);
+    return list.filter((c) => { const n = m.get(c.id); return n >= p.from && (p.to == null || n <= p.to); });
+  }
+  const prefsRef = () => doc(db, "wordcards", state.uid, "cards", "prefs");
+  function savePref(kind, val) {
+    state.prefs[kind] = val;
+    if (state.uid) setDoc(prefsRef(), { type: "prefs", [kind]: val }, { merge: true }).catch(syncError);
+    renderGears();
+  }
+  function renderGears() {
+    $("#st-gear").dataset.on = state.prefs.word.on ? "1" : "0";
+    $("#vq-gear").dataset.on = state.prefs.verb.on ? "1" : "0";
+  }
+
+  // 各種浮層（範圍／刪除確認／編輯／語速）開著時，不要讓背景的連播或快捷鍵繼續動
+  const sheetOpen = () => ["#rg", "#cf", "#ed", "#rt"].some((id) => !$(id).hidden);
+  function pauseForSheet() {
+    editing = true; stopSpeech(); clearTimeout(vq.timer); vq.run++;
+  }
+  function resumeAfterSheet() {
+    editing = false;
+    if (current === "study" && settings.autoNext) playCard();
+    else if (current === "verb" && vqLook() && settings.vauto && vq.done && vq.card) speakExamples();
+  }
+
+  const rg = { kind: "word" };
+  const rgEl = $("#rg");
+  const rgTotal = () => (rg.kind === "verb" ? state.verbs : state.cards).size;
+  function rgRead() {
+    const from = Math.max(1, parseInt($("#rg-from").value, 10) || 1);
+    const to = parseInt($("#rg-to").value, 10) || null;
+    return normPref({ on: $("#rg-on").checked, from, to });
+  }
+  function rgHint() {
+    const n = rgTotal();
+    const on = $("#rg-on").checked;
+    $("#rg-from").disabled = $("#rg-to").disabled = !on;
+    if (!on) { $("#rg-hint").textContent = `目前練習全部，共 ${n} ${rg.kind === "verb" ? "個" : "張"}。`; return; }
+    const p = rgRead();
+    const hi = p.to == null ? n : Math.min(p.to, n);
+    const cnt = Math.max(0, hi - p.from + 1);
+    $("#rg-hint").textContent = `第 ${p.from} ～ ${hi} 個，共 ${cnt} ${rg.kind === "verb" ? "個" : "張"}（全部共 ${n}）。`;
+  }
+  function openRange(kind) {
+    if (sheetOpen()) return;
+    rg.kind = kind;
+    const p = state.prefs[kind];
+    $("#rg-title").textContent = kind === "verb" ? "練習範圍 · 動詞三態" : "練習範圍 · 單字";
+    $("#rg-on").checked = p.on;
+    $("#rg-from").value = p.from;
+    $("#rg-to").value = p.to ?? "";
+    $("#rg-to").placeholder = String(rgTotal() || "");
+    rgHint();
+    pauseForSheet();
+    rgEl.hidden = false;
+  }
+  function closeRange() {
+    if (rgEl.hidden) return;
+    rgEl.hidden = true;
+    resumeAfterSheet();
+  }
+  $("#st-gear").onclick = () => openRange("word");
+  $("#vq-gear").onclick = () => openRange("verb");
+  ["#rg-on", "#rg-from", "#rg-to"].forEach((id) => $(id).addEventListener("input", rgHint));
+  $("#rg-cancel").onclick = closeRange;
+  rgEl.addEventListener("pointerdown", (e) => { if (e.target === rgEl) closeRange(); });
+  $("#rg-form").onsubmit = (e) => {
+    e.preventDefault();
+    const p = rgRead();
+    const n = rgTotal();
+    if (p.on && p.from > n) { toast(`起始序號超過總數（共 ${n}）`); return; }
+    rgEl.hidden = true;
+    savePref(rg.kind, p);
+    editing = false;
+    if (rg.kind === "verb") {
+      vq.queue = [];
+      if (vqCards().length) vqNext();
+    } else if (current === "study") {
+      stopSpeech();
+      if (!buildQueue()) { toast("這個範圍裡沒有可看的字卡"); show("home"); renderHome(); return; }
+      showCard();
+    }
+    if (p.on) toast(`已套用：第 ${p.from} ～ ${p.to ?? "最後"}`);
+  };
+
+  /* ---------------- 刪除確認 ---------------- */
+  const cfEl = $("#cf");
+  let cfFn = null;
+  function confirmDelete(title, msg, fn) {
+    if (sheetOpen()) return;
+    cfFn = fn;
+    $("#cf-title").textContent = title;
+    $("#cf-msg").textContent = msg;
+    pauseForSheet();
+    cfEl.hidden = false;
+    $("#cf-no").focus();
+  }
+  function closeConfirm(yes) {
+    if (cfEl.hidden) return;
+    cfEl.hidden = true;
+    const fn = cfFn; cfFn = null;
+    editing = false;
+    if (yes && fn) fn(); else resumeAfterSheet();
+  }
+  $("#cf-no").onclick = () => closeConfirm(false);
+  $("#cf-yes").onclick = () => closeConfirm(true);
+  cfEl.addEventListener("pointerdown", (e) => { if (e.target === cfEl) closeConfirm(false); });
+  document.addEventListener("keydown", (e) => {
+    if (e.key === "Escape") { closeConfirm(false); closeRange(); }
+  });
 
   /* ---------------- 學習中快速編輯 ---------------- */
   let editing = false;
@@ -590,7 +729,8 @@ function init() {
   /* ---------------- 動詞三態 ---------------- */
   const FORMS = [["v1", "V1", "原形"], ["v2", "V2", "過去式"], ["v3", "V3", "過去分詞"]];
   const vq = { card: null, form: 0, done: false, ok: 0, total: 0, streak: 0, best: 0, queue: [], last: null, run: 0 };
-  const vqCards = () => [...state.verbs.values()].filter((c) => c.v1 && c.v2 && c.v3);
+  const vqAll = () => [...state.verbs.values()].filter((c) => c.v1 && c.v2 && c.v3);
+  const vqCards = () => { const all = vqAll(), r = inRange("verb", all); return r.length ? r : all; };
   const vqInput = (i) => $(`#vq-i${i}`);
   const showAlts = (s) => verbAlts(s).join(" / ");
 
@@ -604,7 +744,7 @@ function init() {
     a.hidden = !vqLook();
     a.dataset.on = settings.vauto ? "1" : "0";
     a.setAttribute("aria-pressed", String(!!settings.vauto));
-    a.textContent = settings.vauto ? "連播 開" : "連播 關";
+    a.textContent = "連播";
     $("#vq-del").disabled = !(vq.card && vq.done);
     updateLock();
   }
@@ -857,7 +997,7 @@ function init() {
     if (settings.vauto && vq.done && vq.card) speakExamples(); else clearTimeout(vq.timer);
   };
   document.addEventListener("keydown", (e) => {
-    if (current === "verb" && vqLook() && e.key === "ArrowRight" && !/^(INPUT|TEXTAREA|SELECT)$/.test(e.target?.tagName || "")) vqNext();
+    if (current === "verb" && vqLook() && !sheetOpen() && e.key === "ArrowRight" && !/^(INPUT|TEXTAREA|SELECT)$/.test(e.target?.tagName || "")) vqNext();
   });
   $("#vq-go").onclick = () => vqSubmit();
   $("#vq-giveup").onclick = () => vqSubmit(true);
@@ -880,7 +1020,7 @@ function init() {
     if (at >= 0 && at < need.length - 1) vqInput(need[at + 1]).focus(); else vqSubmit();
   });
   document.addEventListener("keydown", (e) => {
-    if (current !== "verb" || !vq.done || e.key !== "Enter" || e.isComposing) return;
+    if (current !== "verb" || !vq.done || e.key !== "Enter" || e.isComposing || sheetOpen()) return;
     if (/^(INPUT|TEXTAREA|SELECT|BUTTON)$/.test(e.target?.tagName || "")) return;
     vqNext();
   });
@@ -919,7 +1059,11 @@ function init() {
       unmarkGone(backup.map((x) => x.data));
     } });
   }
-  $("#vq-del").onclick = () => { const c = vq.card; if (!c) return; deleteVerbs([c]); vqNext(); };
+  $("#vq-del").onclick = () => {
+    const c = vq.card;
+    if (!c) return;
+    confirmDelete(`刪除「${showAlts(c.v1)}」？`, `${showAlts(c.v1)} / ${showAlts(c.v2)} / ${showAlts(c.v3)}。刪除後可以在下方提示按「復原」。`, () => { deleteVerbs([c]); vqNext(); });
+  };
 
   /* ----- 動詞管理：勾選多個一起刪 ----- */
   const vm = { q: "", sel: new Set() };
