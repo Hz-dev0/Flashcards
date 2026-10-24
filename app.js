@@ -20,7 +20,24 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const VIEWS = ["setup", "auth", "home", "study", "verb", "vmanage", "manage", "bulk", "done", "import", "settings"];
 let current = null;
 
+// 手機系統返回鍵：在字卡／管理等子頁按返回，回到上一層（首頁）而不是退出 APP。
+// 作法：離開首頁層級時墊一筆歷史紀錄，系統返回只會消耗這一筆，並改為觸發頁面內的返回鈕。
+const TOP_VIEWS = ["setup", "auth", "home"];
+try { if (history.state?.sub) history.replaceState(null, ""); } catch {}
+window.addEventListener("popstate", () => {
+  if (!current || TOP_VIEWS.includes(current)) return;
+  const back = $(`#v-${current}`)?.querySelector("[data-back], #vm-back, #bk-back");
+  if (back) back.click(); else show("home");
+});
+
 function show(name) {
+  try {
+    if (!TOP_VIEWS.includes(name)) {
+      if (!history.state?.sub) history.pushState({ sub: true }, "");
+    } else if (history.state?.sub) {
+      history.back();                  // 用頁面內按鈕回首頁時，把墊的那筆紀錄收掉
+    }
+  } catch {}
   current = name;
   for (const v of VIEWS) $(`#v-${v}`).hidden = v !== name;
   window.scrollTo(0, 0);
@@ -748,18 +765,15 @@ function init() {
       if (empty !== undefined) { retrigger($("#vq-quiz"), "bad"); vqInput(empty).focus(); return; }
     }
     let allOk = true;
+    const res = { [vq.form]: { st: "given" } };
     for (const i of need) {
       const el = vqInput(i);
       const ok = !giveUp && checkVerbAnswer(c[FORMS[i][0]], el.value);
-      el.className = ok ? "ok" : "bad";
+      res[i] = { st: ok ? "ok" : "bad", mine: giveUp ? "" : el.value.trim() };
       el.readOnly = true;
-      if (!ok) {
-        allOk = false;
-        const fix = $(`#vq-f${i}`);
-        fix.textContent = `正確答案：${showAlts(c[FORMS[i][0]])}`;
-        fix.hidden = false;
-      }
+      if (!ok) allOk = false;
     }
+    $(".vq-rows").hidden = true;
     vq.done = true;
     vq.total++;
     if (allOk) { vq.ok++; vq.streak++; vq.best = Math.max(vq.best, vq.streak); } else vq.streak = 0;
@@ -768,20 +782,38 @@ function init() {
     $("#vq-giveup").hidden = true;
     $("#vq-del").disabled = false;
     $("#vq-go").textContent = "下一題";
-    renderExamples(c);
+    renderExamples(c, res);
     fxResult(allOk);
     setTimeout(() => { if (vq.card === c && vq.done && current === "verb") speakExamples(); }, 700);
   }
 
-  function renderExamples(c) {
+  function renderExamples(c, res) {
     const box = $("#vq-res");
     box.textContent = "";
     FORMS.forEach(([k, label, zh], i) => {
+      const r = res?.[i];
       const b = document.createElement("button");
-      b.type = "button"; b.className = "vq-ex"; b.dataset.i = i;
+      b.type = "button"; b.className = "vq-ex" + (r && r.st !== "given" ? " " + r.st : ""); b.dataset.i = i;
       const f = document.createElement("span");
       f.className = "vq-exf"; f.append(label);
-      const sm = document.createElement("small"); sm.textContent = showAlts(c[k]); f.append(sm);
+      const sm = document.createElement("small"); sm.textContent = zh; f.append(sm);
+      const main = document.createElement("span");
+      main.className = "vq-exm";
+      const head = document.createElement("span");
+      head.className = "vq-exh";
+      const w = document.createElement("span");
+      w.className = "vq-form"; w.textContent = showAlts(c[k]);
+      head.append(w);
+      if (r && r.st !== "given") {
+        const m = document.createElement("i");
+        m.className = "vq-mark"; m.textContent = r.st === "ok" ? "✓" : "✗";
+        head.append(m);
+        if (r.st === "bad" && r.mine) {
+          const mine = document.createElement("small");
+          mine.className = "vq-mine"; mine.textContent = `你寫：${r.mine}`;
+          head.append(mine);
+        }
+      }
       const ex = document.createElement("span");
       ex.className = "vq-exs";
       const text = c["ex" + (i + 1)] || "";
@@ -789,11 +821,11 @@ function init() {
         if (p.hl) { const bb = document.createElement("b"); bb.textContent = p.text; ex.append(bb); } else ex.append(p.text);
       }
       if (!text) ex.textContent = "（還沒有例句）";
-      b.append(f, ex);
+      main.append(head, ex);
+      b.append(f, main);
       box.append(b);
     });
     box.hidden = false;
-    if (!vqLook()) box.scrollIntoView({ block: "nearest", behavior: reduceMotion() ? "auto" : "smooth" });
   }
 
   const hiliteRow = (i) => $$(".vq-ex").forEach((el) => el.classList.toggle("speaking", Number(el.dataset.i) === i));
