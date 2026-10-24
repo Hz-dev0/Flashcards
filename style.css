@@ -256,3 +256,7 @@ textarea.bulk { min-height: 60vh; width: 100%; font-family: ui-monospace, "Casca
   .vq.ok, .vq.bad, .vq-row input.bad, .vq-ex { animation: none; }
   .fx-flash.ok, .fx-flash.bad { animation-duration: 0.01s; }
 }
+
+.vq-note { margin: -0.4rem 0 0; font-size: 1.2rem; font-weight: 600; color: var(--fg2); }
+.bar .mode { margin: 0 2px; padding: 0 10px; }
+#vq-score { font-size: 13px; }

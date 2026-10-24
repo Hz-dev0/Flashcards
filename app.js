@@ -30,7 +30,7 @@ function show(name) {
 // 連播時保持螢幕不熄滅（鎖屏或切到背景時，瀏覽器會中斷語音合成）
 let wakeLock = null;
 async function updateLock() {
-  const want = settings.autoNext && current === "study" && !document.hidden;
+  const want = ((settings.autoNext && current === "study") || (current === "verb" && settings.vmode === "look" && settings.vauto)) && !document.hidden;
   try {
     if (want && !wakeLock && navigator.wakeLock) {
       wakeLock = await navigator.wakeLock.request("screen");
@@ -45,7 +45,7 @@ document.addEventListener("visibilitychange", updateLock);
 /* ------------------------------------------------------------------ */
 /* 本機設定（語音每台裝置不同，所以不放雲端）                              */
 /* ------------------------------------------------------------------ */
-const DEFAULTS = { lang: "en-US", voice: "", rate: 0.95, autoplay: true, shuffle: true, autoNext: false, loop: false, fx: true };
+const DEFAULTS = { lang: "en-US", voice: "", rate: 0.95, autoplay: true, shuffle: true, autoNext: false, loop: false, fx: true, vmode: "quiz", vauto: false };
 function readSettings() {
   try { return { ...DEFAULTS, ...JSON.parse(localStorage.getItem("wc.settings") || "{}") }; }
   catch { return { ...DEFAULTS }; }
@@ -312,7 +312,7 @@ function init() {
   $("#h-manage").onclick = () => { mg.q = ""; $("#m-q").value = ""; mg.limit = PAGE; show("manage"); renderManage(); };
   $("#h-import").onclick = () => { show("import"); updatePreview(); };
   $("#h-settings").onclick = () => { fillSettings(); show("settings"); };
-  $$("[data-back]").forEach((b) => b.addEventListener("click", () => { stopSpeech(); show("home"); renderHome(); }));
+  $$("[data-back]").forEach((b) => b.addEventListener("click", () => { stopSpeech(); clearTimeout(vq.timer); show("home"); renderHome(); }));
 
   /* ---------------- 學習 / 複習 ---------------- */
   const inMode = (c) => (state.mode === "known" ? c.status === "known" : c.status !== "known");
@@ -575,12 +575,23 @@ function init() {
   const vqInput = (i) => $(`#vq-i${i}`);
   const showAlts = (s) => verbAlts(s).join(" / ");
 
+  const vqLook = () => settings.vmode === "look";
+  function vqRenderMode() {
+    $("#vq-mode").textContent = vqLook() ? "純看" : "測驗";
+    $("#vq-mode").title = "點擊切換：測驗 ⇄ 純看";
+    const a = $("#vq-auto");
+    a.hidden = !vqLook();
+    a.dataset.mode = settings.vauto ? "next" : "off";
+    a.textContent = settings.vauto ? "連播 開" : "連播 關";
+    updateLock();
+  }
   function vqScore() {
-    $("#vq-score").textContent = vq.total
+    $("#vq-score").textContent = vqLook() ? "" : vq.total
       ? `答對 ${vq.ok} / ${vq.total}${vq.streak > 1 ? ` · 連對 ${vq.streak}` : ""}`
       : "";
   }
   function vqRefresh() {
+    vqRenderMode();
     const has = vqCards().length > 0;
     $("#vq-empty").hidden = has;
     $("#vq-quiz").hidden = !has;
@@ -602,12 +613,28 @@ function init() {
   }
 
   function vqNext() {
-    stopSpeech(); vq.run++;
+    stopSpeech(); vq.run++; clearTimeout(vq.timer);
     const c = vqPick();
     if (!c) return;
     vq.card = c; vq.last = c.id; vq.done = false;
     vq.form = Math.floor(Math.random() * 3);
     const f = vq.form;
+    // 中文意思放在單字正下方（題目和結果都看得到）
+    $("#vq-note").textContent = c.note || "";
+    $("#vq-note").hidden = !c.note;
+    $(".vq-rows").hidden = vqLook();
+    if (vqLook()) {                       // 純看：不用打字，直接顯示三態＋例句並朗讀
+      vq.done = true;
+      $("#vq-badge").textContent = "純看 · 三態";
+      $("#vq-word").textContent = showAlts(c.v1);
+      $("#vq-giveup").hidden = true;
+      $("#vq-go").textContent = "下一個";
+      $("#vq-quiz").classList.remove("ok", "bad");
+      renderExamples(c);
+      vqScore();
+      speakExamples();
+      return;
+    }
     $("#vq-badge").textContent = `${FORMS[f][1]} · ${FORMS[f][2]}`;
     $("#vq-word").textContent = showAlts(c[FORMS[f][0]]);
     for (let i = 0; i < 3; i++) {
@@ -756,13 +783,8 @@ function init() {
       b.append(f, ex);
       box.append(b);
     });
-    if (c.note) {
-      const n = document.createElement("p");
-      n.className = "muted small"; n.textContent = c.note;
-      box.append(n);
-    }
     box.hidden = false;
-    box.scrollIntoView({ block: "nearest", behavior: reduceMotion() ? "auto" : "smooth" });
+    if (!vqLook()) box.scrollIntoView({ block: "nearest", behavior: reduceMotion() ? "auto" : "smooth" });
   }
 
   const hiliteRow = (i) => $$(".vq-ex").forEach((el) => el.classList.toggle("speaking", Number(el.dataset.i) === i));
@@ -772,16 +794,35 @@ function init() {
     if (!c) return;
     const run = ++vq.run;
     const alive = () => vq.run === run && vq.card === c && current === "verb";
+    let all = true;
     for (const i of only === undefined ? [0, 1, 2] : [only]) {
       if (!alive()) return;
       hiliteRow(i);
       const ok = await speakParts([verbSay(c, i), c["ex" + (i + 1)]].filter(Boolean));
-      if (!ok || !alive()) break;
+      if (!ok || !alive()) { all = false; break; }
       await sleep(250);
     }
-    if (alive()) hiliteRow(-1);
+    if (!alive()) return;
+    hiliteRow(-1);
+    // 純看連播：整組念完，停一下自動下一個，直到手動關掉
+    if (all && only === undefined && vqLook() && settings.vauto) {
+      vq.timer = setTimeout(() => { if (alive() && vqLook() && settings.vauto) vqNext(); }, 1500);
+    }
   }
 
+  $("#vq-mode").onclick = () => {
+    settings.vmode = vqLook() ? "quiz" : "look";
+    saveSettings(); vqRenderMode();
+    if (vqCards().length) vqNext();
+  };
+  $("#vq-auto").onclick = () => {
+    settings.vauto = !settings.vauto;
+    saveSettings(); vqRenderMode();
+    if (settings.vauto && vq.done && vq.card) speakExamples(); else clearTimeout(vq.timer);
+  };
+  document.addEventListener("keydown", (e) => {
+    if (current === "verb" && vqLook() && e.key === "ArrowRight" && !/^(INPUT|TEXTAREA|SELECT)$/.test(e.target?.tagName || "")) vqNext();
+  });
   $("#vq-go").onclick = () => vqSubmit();
   $("#vq-giveup").onclick = () => vqSubmit(true);
   $("#vq-speak").onclick = () => {

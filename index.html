@@ -14,7 +14,7 @@
   <link rel="manifest" href="manifest.json">
   <link rel="icon" type="image/png" href="icons/icon-192.png">
   <link rel="apple-touch-icon" href="icons/icon-192.png">
-  <link rel="stylesheet" href="style.css?v=10">
+  <link rel="stylesheet" href="style.css?v=11">
 </head>
 <body>
   <!-- icon sprite -->
@@ -101,7 +101,7 @@
     <header class="bar">
       <button class="icon" data-back aria-label="返回"><svg class="ic"><use href="#i-back"/></svg></button>
       <span id="vq-score" class="muted"></span>
-      <span class="bar-r"><button class="icon txt" id="vq-bulk">文字編輯</button></span>
+      <span class="bar-r"><button type="button" class="mode" id="vq-mode">測驗</button><button type="button" class="mode" id="vq-auto" data-mode="off" hidden>連播 關</button><button class="icon txt" id="vq-bulk">文字編輯</button></span>
     </header>
 
     <div id="vq-empty" class="center-col" hidden>
@@ -113,6 +113,7 @@
     <div id="vq-quiz" class="vq" hidden>
       <div id="vq-badge" class="vq-badge"></div>
       <h1 id="vq-word" class="word"></h1>
+      <p id="vq-note" class="vq-note" hidden></p>
       <div class="vq-rows">
         <label class="vq-row"><span class="vq-lab">V1<small>原形</small></span><input id="vq-i0" data-i="0" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false" enterkeyhint="next"><small class="vq-fix" id="vq-f0" hidden></small></label>
         <label class="vq-row"><span class="vq-lab">V2<small>過去式</small></span><input id="vq-i1" data-i="1" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false" enterkeyhint="next"><small class="vq-fix" id="vq-f1" hidden></small></label>
@@ -264,6 +265,6 @@ resilient  She is resilient.
   </div>
 
   <script src="pwa.js" defer></script>
-  <script type="module" src="app.js?v=11"></script>
+  <script type="module" src="app.js?v=12"></script>
 </body>
 </html>
