@@ -14,7 +14,7 @@
   <link rel="manifest" href="manifest.json">
   <link rel="icon" type="image/png" href="icons/icon-192.png">
   <link rel="apple-touch-icon" href="icons/icon-192.png">
-  <link rel="stylesheet" href="style.css?v=9">
+  <link rel="stylesheet" href="style.css?v=10">
 </head>
 <body>
   <!-- icon sprite -->
@@ -59,6 +59,10 @@
         <span class="row-title">複習</span>
         <span class="row-sub"><b id="h-known">0</b> 張已會</span>
       </button>
+      <button class="row" id="h-verb">
+        <span class="row-title">動詞三態</span>
+        <span class="row-sub"><b id="h-verbs">0</b> 個動詞</span>
+      </button>
       <button class="row" id="h-manage">
         <span class="row-title sm">管理字卡</span>
         <span class="row-sub"><b id="h-total">0</b> 張</span>
@@ -89,6 +93,38 @@
     <footer class="actions">
       <button class="btn primary keep" id="a-keep">會了</button>
       <button class="btn speak" id="st-speak" aria-label="重播（長按或右鍵調整語速）" title="長按／右鍵：調整語速"><svg class="ic"><use href="#i-speaker"/></svg></button>
+    </footer>
+  </section>
+
+  <!-- 動詞三態 -->
+  <section id="v-verb" class="view" hidden>
+    <header class="bar">
+      <button class="icon" data-back aria-label="返回"><svg class="ic"><use href="#i-back"/></svg></button>
+      <span id="vq-score" class="muted"></span>
+      <span class="bar-r"><button class="icon txt" id="vq-bulk">文字編輯</button></span>
+    </header>
+
+    <div id="vq-empty" class="center-col" hidden>
+      <h1 class="title">還沒有動詞</h1>
+      <p class="muted">可以一次載入內建的 100 個常用動詞（每個都有三個例句），也可以到「文字編輯」自己貼。</p>
+      <button class="btn primary" id="vq-seed">載入內建 100 個動詞</button>
+    </div>
+
+    <div id="vq-quiz" class="vq" hidden>
+      <div id="vq-badge" class="vq-badge"></div>
+      <h1 id="vq-word" class="word"></h1>
+      <div class="vq-rows">
+        <label class="vq-row"><span class="vq-lab">V1<small>原形</small></span><input id="vq-i0" data-i="0" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false" enterkeyhint="next"><small class="vq-fix" id="vq-f0" hidden></small></label>
+        <label class="vq-row"><span class="vq-lab">V2<small>過去式</small></span><input id="vq-i1" data-i="1" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false" enterkeyhint="next"><small class="vq-fix" id="vq-f1" hidden></small></label>
+        <label class="vq-row"><span class="vq-lab">V3<small>過去分詞</small></span><input id="vq-i2" data-i="2" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false" enterkeyhint="done"><small class="vq-fix" id="vq-f2" hidden></small></label>
+      </div>
+      <div id="vq-res" class="vq-res" hidden></div>
+      <button class="link" id="vq-giveup" type="button">不會，直接看答案</button>
+    </div>
+
+    <footer class="actions vq-act" id="vq-foot" hidden>
+      <button class="btn speak" id="vq-speak" aria-label="重播"><svg class="ic"><use href="#i-speaker"/></svg></button>
+      <button class="btn primary" id="vq-go">送出</button>
     </footer>
   </section>
 
@@ -128,8 +164,10 @@
         <option value="all">全部</option><option value="new">待學</option><option value="known">已會</option>
       </select>
       <button class="link" id="bk-reset" type="button">還原未儲存的修改</button>
+      <button class="link" id="bk-seed" type="button" hidden>補入內建 100 個動詞</button>
     </div>
-    <p class="muted small m-hint">一行一張：<code>[編號] 單字  例句  備註</code>（欄位間兩個空白）。<b>編號請保留</b>；要新增就另起一行直接寫 <code>單字  例句  備註</code>，儲存後會自動補上編號；刪掉整行＝刪除。調整行的順序會一併儲存。快捷鍵 Ctrl+S。</p>
+    <p id="bk-hint-verb" class="muted small m-hint" hidden>一行一個動詞：<code>[編號] V1  V2  V3  例句1  例句2  例句3  備註</code>（欄位間兩個空白；有欄位留空時要用 Tab 隔開，儲存後 App 會自動整理成正確格式）。V2／V3 有兩種寫法時用 <code>/</code> 隔開，例如 <code>was/were</code>。<b>編號請保留</b>；新增就另起一行不寫編號；刪掉整行＝刪除。快捷鍵 Ctrl+S。</p>
+    <p id="bk-hint-word" class="muted small m-hint">一行一張：<code>[編號] 單字  例句  備註</code>（欄位間兩個空白）。<b>編號請保留</b>；要新增就另起一行直接寫 <code>單字  例句  備註</code>，儲存後會自動補上編號；刪掉整行＝刪除。調整行的順序會一併儲存。快捷鍵 Ctrl+S。</p>
     <textarea id="bk-text" class="bulk" spellcheck="false" autocapitalize="off" wrap="off"></textarea>
     <p id="bk-sum" class="muted small"></p>
   </section>
@@ -179,6 +217,7 @@ resilient  She is resilient.
     </label>
     <label class="check"><input id="s-auto" type="checkbox"> 換到新卡時自動朗讀</label>
     <label class="check"><input id="s-shuffle" type="checkbox"> 隨機順序</label>
+    <label class="check"><input id="s-fx" type="checkbox"> 動詞三態：答題音效與震動</label>
     <button class="btn" id="s-test">試聽</button>
     <p class="muted small">語音清單中標 ★ 的是高品質語音。iPhone：到「設定 → 輔助使用 → 朗讀內容 → 聲音 → 英文」下載 Enhanced／Premium 語音；Android：選 Google 語音；Windows／Edge：選 Natural 語音。</p>
     <p class="muted small">語言、語音、語速等設定只存在這台裝置（各裝置可用的語音不同）。</p>
@@ -214,12 +253,17 @@ resilient  She is resilient.
     </div>
   </div>
 
+  <!-- 動詞三態答題特效 -->
+  <canvas id="fx" class="fx" aria-hidden="true"></canvas>
+  <div id="fx-flash" class="fx-flash" aria-hidden="true"></div>
+  <div id="fx-mark" class="fx-mark" aria-hidden="true"><span id="fx-sym"></span><small id="fx-sub"></small></div>
+
   <div id="toast" class="toast" hidden role="status">
     <span id="toast-msg"></span>
     <button id="toast-act" hidden></button>
   </div>
 
   <script src="pwa.js" defer></script>
-  <script type="module" src="app.js?v=10"></script>
+  <script type="module" src="app.js?v=11"></script>
 </body>
 </html>

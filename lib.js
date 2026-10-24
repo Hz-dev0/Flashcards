@@ -97,17 +97,17 @@ export function parseBulk(text) {
  * 有編號且存在 → 沒改／修改；沒編號（或編號重複／不存在）→ 新增；
  * 編號從文字裡消失（或整行被清空）→ 刪除。lines 是依文字順序的有效行。
  */
-export function diffBulk(snap, text) {
+function diffItems(snap, items, key, valid) {
   const used = new Set();
   const lines = [];
   const updates = [], adds = [];
   let same = 0;
-  for (const it of parseBulk(text)) {
-    if (!it.word) continue;
+  for (const it of items) {
+    if (!valid(it)) continue;
     const card = it.id && !used.has(it.id) ? snap[it.id - 1] : null;
     if (card) {
       used.add(it.id);
-      if (rowKey(card) === rowKey(it)) same++; else updates.push({ card, row: it });
+      if (key(card) === key(it)) same++; else updates.push({ card, row: it });
       lines.push({ card, row: it });
     } else {
       adds.push(it);
@@ -116,4 +116,65 @@ export function diffBulk(snap, text) {
   }
   const deletes = snap.filter((_, i) => !used.has(i + 1));
   return { same, updates, adds, deletes, lines };
+}
+export const diffBulk = (snap, text) => diffItems(snap, parseBulk(text), rowKey, (it) => it.word);
+
+/* ------------------------------------------------------------------ */
+/* 動詞三態                                                             */
+/* 一行一個：[編號] V1  V2  V3  例句1  例句2  例句3  備註                  */
+/* 有欄位留空時整行改用 Tab 分隔，才不會錯位                              */
+/* ------------------------------------------------------------------ */
+export const VERB_FIELDS = ["v1", "v2", "v3", "ex1", "ex2", "ex3", "note"];
+
+export function parseVerbRow(text) {
+  const t = String(text || "").trim();
+  const p = (t.includes("\t") ? t.split("\t") : t.split(/\s{2,}/)).map(flat);
+  const row = {};
+  VERB_FIELDS.forEach((k, i) => { row[k] = p[i] || ""; });
+  if (p.length > VERB_FIELDS.length) row.note = p.slice(VERB_FIELDS.length - 1).filter(Boolean).join("  ");
+  return row;
+}
+export function verbToLine(c) {
+  const v = VERB_FIELDS.map((k) => flat(c[k]));
+  while (v.length > 6 && !v[v.length - 1]) v.pop();   // 沒備註就不用留空欄
+  return v.some((x) => !x) ? v.join("\t") : v.join("  ");
+}
+export const verbKey = (r) => VERB_FIELDS.map((k) => flat(r[k])).join("\u0000");
+export const verbBulkLine = (c, n) => `[${n}] ${verbToLine(c)}`;
+export function parseVerbBulk(text) {
+  const out = [];
+  String(text || "").replace(/\r/g, "").split("\n").forEach((raw) => {
+    if (!raw.trim()) return;
+    const m = /^\s*\[(\d+)\][ \t]*/.exec(raw);
+    out.push({ id: m ? Number(m[1]) : null, ...parseVerbRow(m ? raw.slice(m[0].length) : raw) });
+  });
+  return out;
+}
+export const diffVerbBulk = (snap, text) => diffItems(snap, parseVerbBulk(text), verbKey, (it) => it.v1);
+
+/** "was/were" → ["was","were"] */
+export const verbAlts = (s) => String(s || "").split("/").map((x) => x.trim()).filter(Boolean);
+const vnorm = (s) => String(s || "").trim().toLowerCase().replace(/\s+/g, " ");
+
+/** 檢查某一態的答案：任一種寫法都算對（也可以整串打 was/were） */
+export function checkVerbAnswer(expected, input) {
+  const want = verbAlts(expected).map(vnorm);
+  const got = String(input || "").split("/").map(vnorm).filter(Boolean);
+  return got.length > 0 && got.every((g) => want.includes(g));
+}
+
+/** 發音用文字：多種寫法取第一個；read 的 V2/V3 單獨唸會變成 /riːd/，改送 red 給語音引擎 */
+export function verbSay(card, i) {
+  const k = ["v1", "v2", "v3"][i];
+  if (String(card.v1 || "").toLowerCase() === "read" && i > 0) return "red";
+  return verbAlts(card[k])[0] || card[k] || "";
+}
+
+/** 例句裡的動詞形態標亮（多種寫法時，找得到哪個就標哪個） */
+export function highlightForm(text, form) {
+  for (const a of verbAlts(form)) {
+    const parts = splitHighlight(text, a);
+    if (parts.some((p) => p.hl)) return parts;
+  }
+  return [{ text: String(text || ""), hl: false }];
 }

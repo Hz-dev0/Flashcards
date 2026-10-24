@@ -8,12 +8,16 @@ import {
   collection, doc, onSnapshot, writeBatch, setDoc, updateDoc, deleteDoc,
 } from "https://www.gstatic.com/firebasejs/11.0.2/firebase-firestore.js";
 import { firebaseConfig } from "./firebase-config.js?v=9";
-import { parseImport, cardKey, shuffle, splitHighlight, bulkLine, diffBulk } from "./lib.js?v=9";
+import {
+  parseImport, cardKey, shuffle, splitHighlight, bulkLine, diffBulk,
+  VERB_FIELDS, verbBulkLine, diffVerbBulk, checkVerbAnswer, verbSay, verbAlts, highlightForm,
+} from "./lib.js?v=10";
+import { VERB_SEED } from "./verbs-seed.js?v=1";
 
 const $ = (s) => document.querySelector(s);
 const $$ = (s) => [...document.querySelectorAll(s)];
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
-const VIEWS = ["setup", "auth", "home", "study", "manage", "bulk", "done", "import", "settings"];
+const VIEWS = ["setup", "auth", "home", "study", "verb", "manage", "bulk", "done", "import", "settings"];
 let current = null;
 
 function show(name) {
@@ -41,7 +45,7 @@ document.addEventListener("visibilitychange", updateLock);
 /* ------------------------------------------------------------------ */
 /* 本機設定（語音每台裝置不同，所以不放雲端）                              */
 /* ------------------------------------------------------------------ */
-const DEFAULTS = { lang: "en-US", voice: "", rate: 0.95, autoplay: true, shuffle: true, autoNext: false, loop: false };
+const DEFAULTS = { lang: "en-US", voice: "", rate: 0.95, autoplay: true, shuffle: true, autoNext: false, loop: false, fx: true };
 function readSettings() {
   try { return { ...DEFAULTS, ...JSON.parse(localStorage.getItem("wc.settings") || "{}") }; }
   catch { return { ...DEFAULTS }; }
@@ -190,7 +194,7 @@ function init() {
   }
 
   const state = {
-    uid: null, cards: new Map(), unsub: null, ready: false, pending: false,
+    uid: null, cards: new Map(), verbs: new Map(), unsub: null, ready: false, pending: false,
     mode: "new", queue: [], idx: 0, current: null,
     stats: { keep: 0, del: 0, next: 0 },
   };
@@ -247,8 +251,11 @@ function init() {
     state.unsub = onSnapshot(cardsCol(), { includeMetadataChanges: true }, (snap) => {
       state.pending = snap.metadata.hasPendingWrites;
       snap.docChanges().forEach((ch) => {
-        if (ch.type === "removed") state.cards.delete(ch.doc.id);
-        else state.cards.set(ch.doc.id, { id: ch.doc.id, ...ch.doc.data() });
+        const id = ch.doc.id;
+        if (ch.type === "removed") { state.cards.delete(id); state.verbs.delete(id); return; }
+        const data = ch.doc.data();
+        // 動詞三態的卡不混進一般單字
+        (data.type === "verb" ? state.verbs : state.cards).set(id, { id, ...data });
       });
       state.ready = true;
       renderHome();
@@ -265,7 +272,7 @@ function init() {
   }
   function detach() {
     if (state.unsub) { state.unsub(); state.unsub = null; }
-    state.uid = null; state.cards.clear(); state.ready = false;
+    state.uid = null; state.cards.clear(); state.verbs.clear(); state.ready = false;
   }
 
   /* ---------------- 首頁 ---------------- */
@@ -279,6 +286,7 @@ function init() {
     $("#h-new").textContent = n;
     $("#h-known").textContent = k;
     $("#h-total").textContent = n + k;
+    $("#h-verbs").textContent = state.verbs.size;
     $("#h-learn").disabled = n === 0;
     $("#h-review").disabled = k === 0;
     const empty = $("#h-empty");
@@ -286,6 +294,7 @@ function init() {
     empty.textContent = state.ready ? "還沒有字卡，先匯入一批吧。" : "載入中…";
     renderSync();
     if (current === "manage") refreshManage();
+    if (current === "verb") vqRefresh();
   }
   // 同步狀態：離線、或有寫入還沒送到雲端時顯示在標題旁
   function renderSync() {
@@ -299,6 +308,7 @@ function init() {
   window.addEventListener("offline", renderSync);
   $("#h-learn").onclick = () => startStudy("new");
   $("#h-review").onclick = () => startStudy("known");
+  $("#h-verb").onclick = () => { show("verb"); vqRefresh(); };
   $("#h-manage").onclick = () => { mg.q = ""; $("#m-q").value = ""; mg.limit = PAGE; show("manage"); renderManage(); };
   $("#h-import").onclick = () => { show("import"); updatePreview(); };
   $("#h-settings").onclick = () => { fillSettings(); show("settings"); };
@@ -558,6 +568,266 @@ function init() {
     }
   });
 
+  /* ---------------- 動詞三態 ---------------- */
+  const FORMS = [["v1", "V1", "原形"], ["v2", "V2", "過去式"], ["v3", "V3", "過去分詞"]];
+  const vq = { card: null, form: 0, done: false, ok: 0, total: 0, streak: 0, best: 0, queue: [], last: null, run: 0 };
+  const vqCards = () => [...state.verbs.values()].filter((c) => c.v1 && c.v2 && c.v3);
+  const vqInput = (i) => $(`#vq-i${i}`);
+  const showAlts = (s) => verbAlts(s).join(" / ");
+
+  function vqScore() {
+    $("#vq-score").textContent = vq.total
+      ? `答對 ${vq.ok} / ${vq.total}${vq.streak > 1 ? ` · 連對 ${vq.streak}` : ""}`
+      : "";
+  }
+  function vqRefresh() {
+    const has = vqCards().length > 0;
+    $("#vq-empty").hidden = has;
+    $("#vq-quiz").hidden = !has;
+    $("#vq-foot").hidden = !has;
+    if (!has) { vq.card = null; stopSpeech(); }
+    else if (!vq.card || !state.verbs.has(vq.card.id)) vqNext();
+    vqScore();
+  }
+
+  function vqPick() {
+    const all = vqCards();
+    vq.queue = vq.queue.filter((id) => state.verbs.has(id));
+    if (!vq.queue.length) {
+      vq.queue = shuffle(all.map((c) => c.id));
+      const n = vq.queue.length;       // 從尾巴取：避免洗牌後第一題跟上一題同一個
+      if (n > 1 && vq.queue[n - 1] === vq.last) [vq.queue[0], vq.queue[n - 1]] = [vq.queue[n - 1], vq.queue[0]];
+    }
+    return state.verbs.get(vq.queue.pop());
+  }
+
+  function vqNext() {
+    stopSpeech(); vq.run++;
+    const c = vqPick();
+    if (!c) return;
+    vq.card = c; vq.last = c.id; vq.done = false;
+    vq.form = Math.floor(Math.random() * 3);
+    const f = vq.form;
+    $("#vq-badge").textContent = `${FORMS[f][1]} · ${FORMS[f][2]}`;
+    $("#vq-word").textContent = showAlts(c[FORMS[f][0]]);
+    for (let i = 0; i < 3; i++) {
+      const el = vqInput(i);
+      el.className = i === f ? "given" : "";
+      el.readOnly = i === f;
+      el.tabIndex = i === f ? -1 : 0;
+      el.value = i === f ? showAlts(c[FORMS[i][0]]) : "";
+      $(`#vq-f${i}`).hidden = true;
+    }
+    $("#vq-res").hidden = true;
+    $("#vq-res").textContent = "";
+    $("#vq-giveup").hidden = false;
+    $("#vq-go").textContent = "送出";
+    const q = $("#vq-quiz");
+    q.classList.remove("ok", "bad");
+    const first = [0, 1, 2].find((i) => i !== f);
+    vqInput(first).focus({ preventScroll: true });
+    speakParts([verbSay(c, f)]);
+  }
+
+  /* ----- 特效：彩帶、閃光、大符號、音效、震動 ----- */
+  const reduceMotion = () => matchMedia("(prefers-reduced-motion: reduce)").matches;
+  const fxCanvas = $("#fx"), fxCtx = fxCanvas.getContext("2d");
+  let fxParts = [], fxRaf = 0, fxDpr = 1;
+  function fxTick() {
+    fxCtx.setTransform(fxDpr, 0, 0, fxDpr, 0, 0);
+    fxCtx.clearRect(0, 0, innerWidth, innerHeight);
+    fxParts = fxParts.filter((p) => p.y < innerHeight + 30 && p.life > 0);
+    for (const p of fxParts) {
+      p.vy += 0.5; p.vx *= 0.99; p.x += p.vx; p.y += p.vy; p.r += p.vr; p.life -= 0.008;
+      fxCtx.save();
+      fxCtx.globalAlpha = Math.max(0, Math.min(1, p.life * 2));
+      fxCtx.translate(p.x, p.y); fxCtx.rotate(p.r);
+      fxCtx.fillStyle = p.c; fxCtx.fillRect(-p.w / 2, -p.h / 2, p.w, p.h);
+      fxCtx.restore();
+    }
+    fxRaf = fxParts.length ? requestAnimationFrame(fxTick) : 0;
+    if (!fxRaf) fxCtx.clearRect(0, 0, innerWidth, innerHeight);
+  }
+  function confetti(n, power) {
+    if (!settings.fx || reduceMotion()) return;
+    fxDpr = window.devicePixelRatio || 1;
+    fxCanvas.width = innerWidth * fxDpr; fxCanvas.height = innerHeight * fxDpr;
+    const cols = ["#23c27a", "#f2b705", "#ff5d5d", "#3a86ff", "#c77dff", "#ff8fab"];
+    for (let i = 0; i < n; i++) {
+      fxParts.push({
+        x: innerWidth / 2, y: innerHeight * 0.4,
+        vx: (Math.random() - 0.5) * power * 1.6, vy: -(Math.random() * power + power * 0.5),
+        w: 6 + Math.random() * 7, h: 4 + Math.random() * 6, r: Math.random() * 6.28, vr: (Math.random() - 0.5) * 0.45,
+        c: cols[i % cols.length], life: 1,
+      });
+    }
+    if (!fxRaf) fxRaf = requestAnimationFrame(fxTick);
+  }
+  let actx = null;
+  function tone(seq) {
+    if (!settings.fx) return;
+    try {
+      actx = actx || new (window.AudioContext || window.webkitAudioContext)();
+      if (actx.state === "suspended") actx.resume();
+      const t0 = actx.currentTime;
+      for (const [f, d, at, type] of seq) {
+        const o = actx.createOscillator(), g = actx.createGain();
+        o.type = type || "sine"; o.frequency.value = f;
+        g.gain.setValueAtTime(0.0001, t0 + at);
+        g.gain.exponentialRampToValueAtTime(0.2, t0 + at + 0.02);
+        g.gain.exponentialRampToValueAtTime(0.0001, t0 + at + d);
+        o.connect(g).connect(actx.destination);
+        o.start(t0 + at); o.stop(t0 + at + d + 0.05);
+      }
+    } catch {}
+  }
+  const buzz = (p) => { if (settings.fx) try { navigator.vibrate?.(p); } catch {} };
+  function retrigger(el, cls) { el.classList.remove("ok", "bad"); void el.offsetWidth; el.classList.add(cls); }
+  function fxResult(ok) {
+    const flash = $("#fx-flash"), mark = $("#fx-mark");
+    flash.className = "fx-flash"; mark.className = "fx-mark"; void flash.offsetWidth;
+    flash.classList.add(ok ? "ok" : "bad");
+    mark.classList.add(ok ? "ok" : "bad", "show");
+    $("#fx-sym").textContent = ok ? "✓" : "✗";
+    $("#fx-sub").textContent = ok ? (vq.streak > 1 ? `連對 ×${vq.streak}` : "答對了！") : "答錯了";
+    retrigger($("#vq-quiz"), ok ? "ok" : "bad");
+    if (ok) {
+      const big = vq.streak > 0 && vq.streak % 5 === 0;
+      confetti(big ? 150 : 70, big ? 17 : 12);
+      tone(big ? [[523, 0.12, 0], [659, 0.12, 0.1], [784, 0.12, 0.2], [1047, 0.34, 0.3]] : [[660, 0.12, 0], [990, 0.26, 0.1]]);
+      buzz(big ? [40, 40, 40, 40, 90] : 35);
+    } else {
+      tone([[200, 0.2, 0, "sawtooth"], [140, 0.34, 0.16, "sawtooth"]]);
+      buzz([90, 50, 90]);
+    }
+  }
+
+  /* ----- 送出、結果、例句發音 ----- */
+  function vqSubmit(giveUp = false) {
+    if (vq.done) return vqNext();
+    const c = vq.card;
+    if (!c) return;
+    const need = [0, 1, 2].filter((i) => i !== vq.form);
+    if (!giveUp) {
+      const empty = need.find((i) => !vqInput(i).value.trim());
+      if (empty !== undefined) { retrigger($("#vq-quiz"), "bad"); vqInput(empty).focus(); return; }
+    }
+    let allOk = true;
+    for (const i of need) {
+      const el = vqInput(i);
+      const ok = !giveUp && checkVerbAnswer(c[FORMS[i][0]], el.value);
+      el.className = ok ? "ok" : "bad";
+      el.readOnly = true;
+      if (!ok) {
+        allOk = false;
+        const fix = $(`#vq-f${i}`);
+        fix.textContent = `正確答案：${showAlts(c[FORMS[i][0]])}`;
+        fix.hidden = false;
+      }
+    }
+    vq.done = true;
+    vq.total++;
+    if (allOk) { vq.ok++; vq.streak++; vq.best = Math.max(vq.best, vq.streak); } else vq.streak = 0;
+    vqScore();
+    document.activeElement?.blur?.();
+    $("#vq-giveup").hidden = true;
+    $("#vq-go").textContent = "下一題";
+    renderExamples(c);
+    fxResult(allOk);
+    setTimeout(() => { if (vq.card === c && vq.done && current === "verb") speakExamples(); }, 700);
+  }
+
+  function renderExamples(c) {
+    const box = $("#vq-res");
+    box.textContent = "";
+    FORMS.forEach(([k, label, zh], i) => {
+      const b = document.createElement("button");
+      b.type = "button"; b.className = "vq-ex"; b.dataset.i = i;
+      const f = document.createElement("span");
+      f.className = "vq-exf"; f.append(label);
+      const sm = document.createElement("small"); sm.textContent = showAlts(c[k]); f.append(sm);
+      const ex = document.createElement("span");
+      ex.className = "vq-exs";
+      const text = c["ex" + (i + 1)] || "";
+      for (const p of highlightForm(text, c[k])) {
+        if (p.hl) { const bb = document.createElement("b"); bb.textContent = p.text; ex.append(bb); } else ex.append(p.text);
+      }
+      if (!text) ex.textContent = "（還沒有例句）";
+      b.append(f, ex);
+      box.append(b);
+    });
+    if (c.note) {
+      const n = document.createElement("p");
+      n.className = "muted small"; n.textContent = c.note;
+      box.append(n);
+    }
+    box.hidden = false;
+    box.scrollIntoView({ block: "nearest", behavior: reduceMotion() ? "auto" : "smooth" });
+  }
+
+  const hiliteRow = (i) => $$(".vq-ex").forEach((el) => el.classList.toggle("speaking", Number(el.dataset.i) === i));
+  // 依序念：V1、例句1、V2、例句2、V3、例句3；念到哪一行就把那行框起來
+  async function speakExamples(only) {
+    const c = vq.card;
+    if (!c) return;
+    const run = ++vq.run;
+    const alive = () => vq.run === run && vq.card === c && current === "verb";
+    for (const i of only === undefined ? [0, 1, 2] : [only]) {
+      if (!alive()) return;
+      hiliteRow(i);
+      const ok = await speakParts([verbSay(c, i), c["ex" + (i + 1)]].filter(Boolean));
+      if (!ok || !alive()) break;
+      await sleep(250);
+    }
+    if (alive()) hiliteRow(-1);
+  }
+
+  $("#vq-go").onclick = () => vqSubmit();
+  $("#vq-giveup").onclick = () => vqSubmit(true);
+  $("#vq-speak").onclick = () => {
+    const c = vq.card;
+    if (!c) return;
+    if (vq.done) speakExamples(); else speakParts([verbSay(c, vq.form)]);
+  };
+  $("#vq-word").onclick = () => { const c = vq.card; if (c) speakParts([verbSay(c, vq.form)]); };
+  $("#vq-res").addEventListener("click", (e) => {
+    const b = e.target.closest(".vq-ex");
+    if (b) speakExamples(Number(b.dataset.i));
+  });
+  $("#vq-quiz").addEventListener("keydown", (e) => {
+    if (e.key !== "Enter" || e.isComposing || !e.target.matches?.("input")) return;
+    e.preventDefault();
+    if (vq.done) return vqNext();
+    const need = [0, 1, 2].filter((i) => i !== vq.form);
+    const at = need.indexOf(Number(e.target.dataset.i));
+    if (at >= 0 && at < need.length - 1) vqInput(need[at + 1]).focus(); else vqSubmit();
+  });
+  document.addEventListener("keydown", (e) => {
+    if (current !== "verb" || !vq.done || e.key !== "Enter" || e.isComposing) return;
+    if (/^(INPUT|TEXTAREA|SELECT|BUTTON)$/.test(e.target?.tagName || "")) return;
+    vqNext();
+  });
+
+  function seedVerbs() {
+    const have = new Set([...state.verbs.values()].map((c) => String(c.v1).trim().toLowerCase()));
+    const fresh = VERB_SEED.filter((r) => !have.has(r[0].toLowerCase()));
+    if (!fresh.length) { toast("內建的動詞都已經在裡面了"); return 0; }
+    const base = Date.now(), col = cardsCol(), jobs = [];
+    for (let i = 0; i < fresh.length; i += 400) {
+      const batch = writeBatch(db);
+      fresh.slice(i, i + 400).forEach((r, j) => {
+        const data = { type: "verb", word: r[0], createdAt: base + i + j };
+        VERB_FIELDS.forEach((k, x) => { data[k] = r[x] || ""; });
+        batch.set(doc(col), data);
+      });
+      jobs.push(batch.commit());
+    }
+    Promise.all(jobs).catch(syncError);   // 不 await：離線也立刻生效
+    toast(`已加入 ${fresh.length} 個動詞`);
+    return fresh.length;
+  }
+  $("#vq-seed").onclick = seedVerbs;
+
   /* ---------------- 管理全部卡片 ---------------- */
   const PAGE = 100;
   const mg = { q: "", f: "all", limit: PAGE, dirty: false };
@@ -703,31 +973,45 @@ function init() {
   };
 
   /* ---------------- 總編輯（純文字編輯器） ---------------- */
-  const bk = { snap: [], orig: "", scope: "all" };
+  const bk = { snap: [], orig: "", scope: "all", kind: "word" };
+  const bkVerb = () => bk.kind === "verb";
+  const bkFields = () => (bkVerb() ? VERB_FIELDS : ["word", "example", "note"]);
   const bkDirty = () => $("#bk-text").value !== bk.orig;
   const bkRender = (list) => {
     bk.snap = list;
-    bk.orig = list.map((c, i) => bulkLine(c, i + 1)).join("\n");
+    bk.orig = list.map((c, i) => (bkVerb() ? verbBulkLine(c, i + 1) : bulkLine(c, i + 1))).join("\n");
     $("#bk-text").value = bk.orig;
-    $("#bk-count").textContent = `${list.length} 張`;
+    $("#bk-count").textContent = `${list.length} ${bkVerb() ? "個" : "張"}`;
     bkSummary();
   };
   function bkLoad() {
+    if (bkVerb()) {
+      bkRender([...state.verbs.values()].sort((a, b) => (a.createdAt || 0) - (b.createdAt || 0)));
+      return;
+    }
     const f = bk.scope;
     bkRender([...state.cards.values()]
       .filter((c) => f === "all" || (f === "known") === (c.status === "known"))
       .sort((a, b) => (a.createdAt || 0) - (b.createdAt || 0)));
   }
   function bkSummary() {
-    const d = diffBulk(bk.snap, $("#bk-text").value);
+    const d = bkVerb() ? diffVerbBulk(bk.snap, $("#bk-text").value) : diffBulk(bk.snap, $("#bk-text").value);
     const moved = bkOrderChanged(d);
     const n = d.updates.length + d.adds.length + d.deletes.length;
     $("#bk-save").disabled = !(n || moved);
     $("#bk-save").textContent = bkDirty() ? "儲存 ●" : "儲存";
-    const keys = new Set([...state.cards.values()].map((c) => cardKey(c.word, c.example)));
-    const dup = d.adds.filter((r) => keys.has(cardKey(r.word, r.example))).length;
-    $("#bk-sum").textContent = n || moved
-      ? `修改 ${d.updates.length} · 新增 ${d.adds.length}${dup ? `（${dup} 張與現有重複）` : ""} · 刪除 ${d.deletes.length}${moved ? " · 順序有調整" : ""}`
+    let dup, extra = "";
+    if (bkVerb()) {
+      const have = new Set([...state.verbs.values()].map((c) => String(c.v1).trim().toLowerCase()));
+      dup = d.adds.filter((r) => have.has(r.v1.toLowerCase())).length;
+      const bad = d.lines.filter((l) => !(l.row.v2 && l.row.v3)).length;
+      if (bad) extra = ` · ⚠ ${bad} 行缺 V2／V3（不會出題）`;
+    } else {
+      const keys = new Set([...state.cards.values()].map((c) => cardKey(c.word, c.example)));
+      dup = d.adds.filter((r) => keys.has(cardKey(r.word, r.example))).length;
+    }
+    $("#bk-sum").textContent = n || moved || extra
+      ? `修改 ${d.updates.length} · 新增 ${d.adds.length}${dup ? `（${dup} 筆與現有重複）` : ""} · 刪除 ${d.deletes.length}${moved ? " · 順序有調整" : ""}${extra}`
       : "";
     return d;
   }
@@ -796,7 +1080,20 @@ function init() {
     }
   });
   window.addEventListener("beforeunload", (e) => { if (current === "bulk" && bkDirty()) { e.preventDefault(); e.returnValue = ""; } });
-  $("#m-bulk").onclick = () => { bk.scope = mg.f; $("#bk-scope").value = bk.scope; bkLoad(); show("bulk"); };
+  function bkOpen(kind) {
+    bk.kind = kind;
+    const v = kind === "verb";
+    $("#bk-scope").hidden = v; $("#bk-seed").hidden = !v;
+    $("#bk-hint-verb").hidden = !v; $("#bk-hint-word").hidden = v;
+    if (!v) { bk.scope = mg.f; $("#bk-scope").value = bk.scope; }
+    bkLoad(); show("bulk");
+  }
+  $("#m-bulk").onclick = () => bkOpen("word");
+  $("#vq-bulk").onclick = () => bkOpen("verb");
+  $("#bk-seed").onclick = () => {
+    if (!seedVerbs()) return;
+    setTimeout(() => { if (current === "bulk" && bkVerb() && !bkDirty()) bkLoad(); }, 300);
+  };
   $("#bk-scope").onchange = (e) => {
     if (bkDirty() && !confirm("有尚未儲存的修改，切換範圍會捨棄，確定嗎？")) { e.target.value = bk.scope; return; }
     bk.scope = e.target.value; bkLoad();
@@ -804,6 +1101,7 @@ function init() {
   $("#bk-reset").onclick = () => { if (!bkDirty() || confirm("捨棄所有尚未儲存的修改？")) { $("#bk-text").value = bk.orig; bkSummary(); } };
   $("#bk-back").onclick = () => {
     if (bkDirty() && !confirm("有尚未儲存的修改，確定離開？")) return;
+    if (bkVerb()) { vq.card = null; show("verb"); vqRefresh(); return; }
     show("manage"); renderManage();
   };
   $("#bk-save").onclick = bkSave;
@@ -817,17 +1115,20 @@ function init() {
     const next = [];   // 儲存後的新快照（依文字順序）
     d.lines.forEach((l, i) => {
       const r = l.row;
+      const vals = {};
+      for (const k of bkFields()) vals[k] = r[k] || "";
+      if (bkVerb()) vals.word = r.v1;   // 保留 word 欄位，萬一舊版 App 讀到也不會壞
       if (l.card) {
         const patch = {};
-        if (r.word !== l.card.word) patch.word = r.word;
-        if ((r.example || "") !== (l.card.example || "")) patch.example = r.example || "";
-        if ((r.note || "") !== (l.card.note || "")) patch.note = r.note || "";
+        for (const k of Object.keys(vals)) if (vals[k] !== (l.card[k] || "")) patch[k] = vals[k];
         if ((l.card.createdAt || 0) !== t[i]) patch.createdAt = t[i];
         if (Object.keys(patch).length) ops.push((b) => b.update(cardRef(l.card.id), patch));
-        next.push({ ...l.card, word: r.word, example: r.example || "", note: r.note || "", createdAt: t[i] });
+        next.push({ ...l.card, ...vals, createdAt: t[i] });
       } else {
         const ref = doc(cardsCol());
-        const data = { word: r.word, example: r.example || "", note: r.note || "", status: "new", createdAt: t[i] };
+        const data = bkVerb()
+          ? { ...vals, type: "verb", createdAt: t[i] }
+          : { ...vals, status: "new", createdAt: t[i] };
         ops.push((b) => b.set(ref, data));
         next.push({ id: ref.id, ...data });
       }
@@ -874,6 +1175,7 @@ function init() {
     $("#s-rate-out").textContent = settings.rate.toFixed(2) + "×";
     $("#s-auto").checked = settings.autoplay;
     $("#s-shuffle").checked = settings.shuffle;
+    $("#s-fx").checked = settings.fx;
     $("#s-account").textContent = auth.currentUser?.email || "";
   }
   $("#s-lang").onchange = (e) => { settings.lang = e.target.value; settings.voice = ""; saveSettings(); fillVoices(); };
@@ -885,6 +1187,7 @@ function init() {
   };
   $("#s-auto").onchange = (e) => { settings.autoplay = e.target.checked; saveSettings(); };
   $("#s-shuffle").onchange = (e) => { settings.shuffle = e.target.checked; saveSettings(); };
+  $("#s-fx").onchange = (e) => { settings.fx = e.target.checked; saveSettings(); };
   $("#s-test").onclick = () => speakParts([SAMPLES[settings.lang] || "Hello"]);
 }
 
