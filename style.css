@@ -305,12 +305,12 @@ textarea.bulk { min-height: 60vh; width: 100%; font-family: ui-monospace, "Casca
 .btn.danger-fill { background: var(--danger); border-color: var(--danger); color: #fff; }
 .icon.quiet[data-on="1"] { opacity: 1; color: var(--fg); background: color-mix(in srgb, var(--line) 80%, transparent); }
 
-/* 序號：單字格／動詞列的左上角 */
+/* 序號：管理字卡＝單字格左側（同一行）；管理動詞＝勾選框正下方 */
 .m-table td.c-word { position: relative; }
-.m-table td.c-word input { padding-top: 13px; }
-.m-no, .vm-no { position: absolute; top: 2px; left: 8px; font-size: 10px; line-height: 1; color: var(--muted); font-variant-numeric: tabular-nums; pointer-events: none; }
-.vm-main { position: relative; padding-top: 9px; }
-.vm-no { left: 0; top: -1px; }
+.m-table td.c-word input { padding-left: 30px; }
+.m-no { position: absolute; left: 4px; top: 50%; transform: translateY(-50%); width: 26px; text-align: center; font-size: 10px; line-height: 1; color: var(--muted); font-variant-numeric: tabular-nums; pointer-events: none; }
+.vm-chk { display: flex; flex-direction: column; align-items: center; gap: 3px; }
+.vm-no { font-size: 10px; line-height: 1; color: var(--muted); font-variant-numeric: tabular-nums; }
 
-/* 大字單字左上角的序號 */
-.word .sn { font-size: 0.26em; font-weight: 500; letter-spacing: 0; line-height: 0; margin-right: 0.25em; color: var(--muted); vertical-align: super; font-variant-numeric: tabular-nums; }
+/* 大字單字上方一行的序號（單字維持置中） */
+.word .sn { display: block; font-size: 0.24em; font-weight: 500; letter-spacing: 0; line-height: 1.2; margin-bottom: 0.35em; color: var(--muted); font-variant-numeric: tabular-nums; }

@@ -384,7 +384,7 @@ function init() {
   // 大字單字：左上角標序號（像平方的小數字）
   function setWord(el, text, no) {
     el.textContent = "";
-    if (no) { const sup = document.createElement("sup"); sup.className = "sn"; sup.textContent = no; sup.title = "序號"; el.append(sup); }
+    if (no) { const sup = document.createElement("span"); sup.className = "sn"; sup.textContent = no; sup.title = "序號"; el.append(sup); }
     el.append(text);
   }
   function renderCard(c) {
@@ -1097,11 +1097,12 @@ function init() {
       const main = document.createElement("span");
       main.className = "vm-main";
       const no = document.createElement("span"); no.className = "vm-no"; no.textContent = sn.get(c.id);
-      main.append(no);
+      const chk = document.createElement("span"); chk.className = "vm-chk";
       const b = document.createElement("b"); b.textContent = c.v1;
       main.append(b, ` · ${c.v2 || "?"} · ${c.v3 || "?"}`);
       if (c.note) { const sm = document.createElement("small"); sm.textContent = c.note; main.append(sm); }
-      row.append(cb, main);
+      chk.append(cb, no);
+      row.append(chk, main);
       frag.append(row);
     }
     $("#vm-list").textContent = "";
