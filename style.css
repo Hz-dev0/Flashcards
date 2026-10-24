@@ -260,3 +260,13 @@ textarea.bulk { min-height: 60vh; width: 100%; font-family: ui-monospace, "Casca
 .vq-note { margin: -0.4rem 0 0; font-size: 1.2rem; font-weight: 600; color: var(--fg2); }
 .bar .mode { margin: 0 2px; padding: 0 10px; }
 #vq-score { font-size: 13px; }
+
+.del-link { color: var(--danger); }
+.vm-list { display: flex; flex-direction: column; margin-top: 4px; }
+.vm-row { display: grid; grid-template-columns: 28px 1fr; gap: 6px 10px; align-items: center; padding: 11px 2px; border-bottom: 1px solid var(--line); cursor: pointer; }
+.vm-row:has(input:checked) { background: color-mix(in srgb, var(--danger) 10%, transparent); }
+.vm-main { font-size: 1.05rem; overflow-wrap: anywhere; }
+.vm-main b { font-weight: 700; }
+.vm-main small { display: block; color: var(--muted); font-size: 13px; }
+.vm-bar { position: sticky; bottom: 0; padding: 10px 0 max(10px, env(safe-area-inset-bottom)); margin-top: auto; background: var(--bg); }
+.vm-bar .btn { width: 100%; }

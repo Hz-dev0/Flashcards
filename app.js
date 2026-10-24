@@ -17,7 +17,7 @@ import { VERB_SEED } from "./verbs-seed.js?v=1";
 const $ = (s) => document.querySelector(s);
 const $$ = (s) => [...document.querySelectorAll(s)];
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
-const VIEWS = ["setup", "auth", "home", "study", "verb", "manage", "bulk", "done", "import", "settings"];
+const VIEWS = ["setup", "auth", "home", "study", "verb", "vmanage", "manage", "bulk", "done", "import", "settings"];
 let current = null;
 
 function show(name) {
@@ -194,7 +194,7 @@ function init() {
   }
 
   const state = {
-    uid: null, cards: new Map(), verbs: new Map(), unsub: null, ready: false, pending: false,
+    uid: null, cards: new Map(), verbs: new Map(), gone: new Set(), unsub: null, ready: false, pending: false,
     mode: "new", queue: [], idx: 0, current: null,
     stats: { keep: 0, del: 0, next: 0 },
   };
@@ -252,8 +252,9 @@ function init() {
       state.pending = snap.metadata.hasPendingWrites;
       snap.docChanges().forEach((ch) => {
         const id = ch.doc.id;
-        if (ch.type === "removed") { state.cards.delete(id); state.verbs.delete(id); return; }
+        if (ch.type === "removed") { state.cards.delete(id); state.verbs.delete(id); if (id === "verbmeta") state.gone = new Set(); return; }
         const data = ch.doc.data();
+        if (data.type === "verbmeta") { state.gone = new Set(data.gone || []); return; }   // 記錄「刪掉的內建動詞」
         // 動詞三態的卡不混進一般單字
         (data.type === "verb" ? state.verbs : state.cards).set(id, { id, ...data });
       });
@@ -272,7 +273,7 @@ function init() {
   }
   function detach() {
     if (state.unsub) { state.unsub(); state.unsub = null; }
-    state.uid = null; state.cards.clear(); state.verbs.clear(); state.ready = false;
+    state.uid = null; state.cards.clear(); state.verbs.clear(); state.gone = new Set(); state.ready = false;
   }
 
   /* ---------------- 首頁 ---------------- */
@@ -295,6 +296,7 @@ function init() {
     renderSync();
     if (current === "manage") refreshManage();
     if (current === "verb") vqRefresh();
+    if (current === "vmanage") vmRender();
   }
   // 同步狀態：離線、或有寫入還沒送到雲端時顯示在標題旁
   function renderSync() {
@@ -622,12 +624,14 @@ function init() {
     // 中文意思放在單字正下方（題目和結果都看得到）
     $("#vq-note").textContent = c.note || "";
     $("#vq-note").hidden = !c.note;
+    $("#vq-del").hidden = true;
     $(".vq-rows").hidden = vqLook();
     if (vqLook()) {                       // 純看：不用打字，直接顯示三態＋例句並朗讀
       vq.done = true;
       $("#vq-badge").textContent = "純看 · 三態";
       $("#vq-word").textContent = showAlts(c.v1);
       $("#vq-giveup").hidden = true;
+      $("#vq-del").hidden = false;
       $("#vq-go").textContent = "下一個";
       $("#vq-quiz").classList.remove("ok", "bad");
       renderExamples(c);
@@ -758,6 +762,7 @@ function init() {
     vqScore();
     document.activeElement?.blur?.();
     $("#vq-giveup").hidden = true;
+    $("#vq-del").hidden = false;
     $("#vq-go").textContent = "下一題";
     renderExamples(c);
     fxResult(allOk);
@@ -849,10 +854,107 @@ function init() {
     vqNext();
   });
 
+  /* ----- 刪除（單個／多個）與「已刪除的內建動詞」記錄 ----- */
+  // 記在同一個 cards 集合裡的一份 verbmeta 文件，換裝置也同步；用來避免「補入內建動詞」把你刪掉的又補回來
+  const SEED_KEYS = new Set(VERB_SEED.map((r) => r[0].toLowerCase()));
+  const vkey = (v) => String(v || "").trim().toLowerCase();
+  const saveGone = () => setDoc(doc(db, "wordcards", state.uid, "cards", "verbmeta"), { type: "verbmeta", gone: [...state.gone] }).catch(syncError);
+  function markGone(cards) {
+    let ch = false;
+    for (const c of cards) { const k = vkey(c.v1); if (SEED_KEYS.has(k) && !state.gone.has(k)) { state.gone.add(k); ch = true; } }
+    if (ch) saveGone();
+  }
+  function unmarkGone(cards) {
+    let ch = false;
+    for (const c of cards) if (state.gone.delete(vkey(c.v1))) ch = true;
+    if (ch) saveGone();
+  }
+  function deleteVerbs(cards) {
+    if (!cards.length) return;
+    const backup = cards.map((c) => ({ id: c.id, data: toData(c) }));
+    for (let i = 0; i < cards.length; i += 400) {
+      const batch = writeBatch(db);
+      cards.slice(i, i + 400).forEach((c) => batch.delete(cardRef(c.id)));
+      batch.commit().catch(syncError);
+    }
+    cards.forEach((c) => { state.verbs.delete(c.id); vm.sel.delete(c.id); });
+    markGone(cards);
+    toast(cards.length === 1 ? `已刪除「${cards[0].v1}」` : `已刪除 ${cards.length} 個動詞`, { label: "復原", fn: () => {
+      for (let i = 0; i < backup.length; i += 400) {
+        const batch = writeBatch(db);
+        backup.slice(i, i + 400).forEach((x) => batch.set(cardRef(x.id), x.data));
+        batch.commit().catch(syncError);
+      }
+      unmarkGone(backup.map((x) => x.data));
+    } });
+  }
+  $("#vq-del").onclick = () => { const c = vq.card; if (!c) return; deleteVerbs([c]); vqNext(); };
+
+  /* ----- 動詞管理：勾選多個一起刪 ----- */
+  const vm = { q: "", sel: new Set() };
+  const vmList = () => {
+    const q = vm.q.trim().toLowerCase();
+    return [...state.verbs.values()]
+      .filter((c) => !q || `${c.v1} ${c.v2} ${c.v3} ${c.note || ""}`.toLowerCase().includes(q))
+      .sort((a, b) => (a.createdAt || 0) - (b.createdAt || 0));
+  };
+  function vmSync() {
+    $("#vm-del").textContent = `刪除所選 (${vm.sel.size})`;
+    $("#vm-del").disabled = vm.sel.size === 0;
+  }
+  function vmRender() {
+    for (const id of [...vm.sel]) if (!state.verbs.has(id)) vm.sel.delete(id);
+    const list = vmList();
+    $("#vm-count").textContent = `${state.verbs.size} 個`;
+    const frag = document.createDocumentFragment();
+    for (const c of list) {
+      const row = document.createElement("label");
+      row.className = "vm-row";
+      const cb = document.createElement("input");
+      cb.type = "checkbox"; cb.dataset.id = c.id; cb.checked = vm.sel.has(c.id);
+      const main = document.createElement("span");
+      main.className = "vm-main";
+      const b = document.createElement("b"); b.textContent = c.v1;
+      main.append(b, ` · ${c.v2 || "?"} · ${c.v3 || "?"}`);
+      if (c.note) { const sm = document.createElement("small"); sm.textContent = c.note; main.append(sm); }
+      row.append(cb, main);
+      frag.append(row);
+    }
+    $("#vm-list").textContent = "";
+    $("#vm-list").append(frag);
+    $("#vm-empty").hidden = list.length > 0;
+    vmSync();
+  }
+  $("#vm-list").addEventListener("change", (e) => {
+    const id = e.target.dataset?.id;
+    if (!id) return;
+    if (e.target.checked) vm.sel.add(id); else vm.sel.delete(id);
+    vmSync();
+  });
+  $("#vm-q").addEventListener("input", (e) => { vm.q = e.target.value; vmRender(); });
+  $("#vm-all").onclick = () => { vmList().forEach((c) => vm.sel.add(c.id)); vmRender(); };
+  $("#vm-none").onclick = () => { vm.sel.clear(); vmRender(); };
+  $("#vm-back").onclick = () => { show("verb"); vqRefresh(); };
+  $("#vm-seed").onclick = () => seedVerbs();
+  $("#vm-del").onclick = () => {
+    const cards = [...vm.sel].map((id) => state.verbs.get(id)).filter(Boolean);
+    if (!cards.length) return;
+    if (cards.length > 5 && !confirm(`確定刪除 ${cards.length} 個動詞？`)) return;
+    deleteVerbs(cards);
+    vmRender();
+  };
+
   function seedVerbs() {
-    const have = new Set([...state.verbs.values()].map((c) => String(c.v1).trim().toLowerCase()));
-    const fresh = VERB_SEED.filter((r) => !have.has(r[0].toLowerCase()));
-    if (!fresh.length) { toast("內建的動詞都已經在裡面了"); return 0; }
+    const have = new Set([...state.verbs.values()].map((c) => vkey(c.v1)));
+    let fresh = VERB_SEED.filter((r) => !have.has(r[0].toLowerCase()) && !state.gone.has(r[0].toLowerCase()));
+    if (!fresh.length) {
+      const back = VERB_SEED.filter((r) => !have.has(r[0].toLowerCase()));
+      if (back.length && confirm(`內建動詞裡有 ${back.length} 個是你之前刪除的，要補回來嗎？`)) {
+        back.forEach((r) => state.gone.delete(r[0].toLowerCase()));
+        saveGone();
+        fresh = back;
+      } else { toast("內建的動詞都已經在裡面了"); return 0; }
+    }
     const base = Date.now(), col = cardsCol(), jobs = [];
     for (let i = 0; i < fresh.length; i += 400) {
       const batch = writeBatch(db);
@@ -868,6 +970,7 @@ function init() {
     return fresh.length;
   }
   $("#vq-seed").onclick = seedVerbs;
+  $("#vq-seed").textContent = `載入內建 ${VERB_SEED.length} 個動詞`;
 
   /* ---------------- 管理全部卡片 ---------------- */
   const PAGE = 100;
@@ -1130,7 +1233,8 @@ function init() {
     bkLoad(); show("bulk");
   }
   $("#m-bulk").onclick = () => bkOpen("word");
-  $("#vq-bulk").onclick = () => bkOpen("verb");
+  $("#vq-bulk").onclick = () => { vm.q = ""; $("#vm-q").value = ""; vm.sel.clear(); show("vmanage"); vmRender(); };
+  $("#vm-bulk").onclick = () => bkOpen("verb");
   $("#bk-seed").onclick = () => {
     if (!seedVerbs()) return;
     setTimeout(() => { if (current === "bulk" && bkVerb() && !bkDirty()) bkLoad(); }, 300);
@@ -1142,7 +1246,7 @@ function init() {
   $("#bk-reset").onclick = () => { if (!bkDirty() || confirm("捨棄所有尚未儲存的修改？")) { $("#bk-text").value = bk.orig; bkSummary(); } };
   $("#bk-back").onclick = () => {
     if (bkDirty() && !confirm("有尚未儲存的修改，確定離開？")) return;
-    if (bkVerb()) { vq.card = null; show("verb"); vqRefresh(); return; }
+    if (bkVerb()) { show("vmanage"); vmRender(); return; }
     show("manage"); renderManage();
   };
   $("#bk-save").onclick = bkSave;
@@ -1175,6 +1279,7 @@ function init() {
       }
     });
     const backup = d.deletes.map((c) => ({ id: c.id, data: toData(c) }));
+    if (bkVerb()) markGone(d.deletes);
     for (const c of d.deletes) ops.push((b) => b.delete(cardRef(c.id)));
     const jobs = [];
     for (let i = 0; i < ops.length; i += 400) {
@@ -1191,6 +1296,7 @@ function init() {
         const b = writeBatch(db);
         backup.slice(0, 400).forEach((x) => b.set(cardRef(x.id), x.data));
         b.commit().catch(syncError);
+        if (bkVerb()) unmarkGone(backup.map((x) => x.data));
         setTimeout(() => { if (current === "bulk" && !bkDirty()) bkLoad(); }, 400);
       } });
     } else toast(msg);
