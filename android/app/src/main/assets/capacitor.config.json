@@ -1,0 +1,16 @@
+{
+	"appId": "com.flashcards.app",
+	"appName": "字卡",
+	"webDir": "www",
+	"server": {
+		"androidScheme": "https"
+	},
+	"plugins": {
+		"FirebaseAuthentication": {
+			"skipNativeAuth": true,
+			"providers": [
+				"google.com"
+			]
+		}
+	}
+}

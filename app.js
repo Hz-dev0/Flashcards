@@ -1,7 +1,7 @@
 import { initializeApp } from "https://www.gstatic.com/firebasejs/11.0.2/firebase-app.js";
 import {
   getAuth, onAuthStateChanged, GoogleAuthProvider, signInWithPopup,
-  signInWithRedirect, getRedirectResult, signOut,
+  signInWithRedirect, getRedirectResult, signOut, signInWithCredential,
 } from "https://www.gstatic.com/firebasejs/11.0.2/firebase-auth.js";
 import {
   initializeFirestore, getFirestore, persistentLocalCache, persistentMultipleTabManager,
@@ -82,13 +82,9 @@ document.addEventListener("keydown", (e) => {
 
 // 連播（字卡）或純看連播（動詞）進行中
 const autoWant = () => (settings.autoNext && current === "study") || (current === "verb" && settings.vmode === "look" && settings.vauto);
-// 連播時的背景保活（無聲音訊＋媒體控制），實作在下面主程式裡
-let onKeepAlive = () => {};
-
 // 連播時保持螢幕不熄滅
 let wakeLock = null;
 async function updateLock() {
-  onKeepAlive(autoWant());
   const want = autoWant() && !document.hidden;
   try {
     if (want && !wakeLock && navigator.wakeLock) {
@@ -104,7 +100,7 @@ document.addEventListener("visibilitychange", updateLock);
 /* ------------------------------------------------------------------ */
 /* 本機設定（語音每台裝置不同，所以不放雲端）                              */
 /* ------------------------------------------------------------------ */
-const DEFAULTS = { lang: "en-US", zhVoice: "", readZh: true, rate: 0.95, autoplay: true, shuffle: true, autoNext: false, loop: false, fx: true, vmode: "quiz", vauto: false };
+const DEFAULTS = { lang: "en-US", readZh: true, rate: 0.95, autoplay: true, shuffle: true, autoNext: false, loop: false, fx: true, vmode: "quiz", vauto: false };
 function readSettings() {
   try { return { ...DEFAULTS, ...JSON.parse(localStorage.getItem("wc.settings") || "{}") }; }
   catch { return { ...DEFAULTS }; }
@@ -126,14 +122,12 @@ const SAMPLES = {
 /* ------------------------------------------------------------------ */
 const synth = "speechSynthesis" in window ? window.speechSynthesis : null;
 let voices = [];
-let fillZhVoices = null;
 let speakToken = 0;
 const normLang = (l) => String(l || "").replace("_", "-").toLowerCase().replace(/^cmn/, "zh");
 
 function loadVoices() {
   if (!synth) return;
   voices = synth.getVoices();
-  if (typeof fillZhVoices === "function") fillZhVoices();
 }
 if (synth) { loadVoices(); synth.onvoiceschanged = loadVoices; }
 
@@ -146,7 +140,6 @@ function voiceScore(v) {
   if (/google/.test(n)) s += 60;                         // Android／Chrome 的 Google 語音
   if (/samantha|ava|allison|serena|daniel|karen|moira|tessa|zoe|evan|nathan/.test(n)) s += 20;
   if (/compact|espeak|novelty|bad news|bahh|bells|boing|bubbles|cellos|deranged|good news|hysterical|jester|organ|trinoids|whisper|zarvox|albert|fred|junior|kathy|ralph|superstar/.test(n)) s -= 100;
-  if (/hanhan|yating|zhiwei|huihui|kangkang|yaoyao/.test(n) && !/natural|online/.test(n)) s -= 50; // Windows 舊式離線中文語音，聲調與多音字很差
   if (!v.localService) s += 10;                          // 雲端語音通常較好（需要網路）
   return s;
 }
@@ -160,10 +153,6 @@ function pickVoice(lang = settings.lang) {
   if (!voices.length) return null;
   const want = normLang(lang);
   const prim = want.split("-")[0];
-  if (prim === "zh" && settings.zhVoice) {   // 使用者手動指定的中文語音優先
-    const chosen = voices.find((v) => v.voiceURI === settings.zhVoice || v.name === settings.zhVoice);
-    if (chosen) return chosen;
-  }
   const pool = prim === "zh" ? zhVoices() : voices;
   const best = (list) => list.sort((a, b) => voiceScore(b) - voiceScore(a))[0] || null;
   return best(pool.filter((v) => normLang(v.lang) === want))
@@ -188,9 +177,21 @@ function utter(text, zh = false) {
 }
 
 // 回傳 Promise<boolean>：true = 完整念完；false = 被打斷（換卡、重播、離開畫面）
+// 原生 App（Capacitor）：朗讀改走 Android 系統 TTS，連播交給背景服務
+const NATIVE = !!(window.Capacitor && window.Capacitor.isNativePlatform && window.Capacitor.isNativePlatform());
+const NSpeech = NATIVE ? window.Capacitor.Plugins.Speech : null;
+let nativeActive = false;     // 原生連播服務是否在跑（網頁端的記錄）
+let nativeRemove = null;      // 剛標成「會了」／刪除的卡，下次重啟連播時通知服務從輪次拿掉
+
 function speakParts(parts) {
   if (!parts.length) return Promise.resolve(false);
   const token = ++speakToken;
+  if (NATIVE) {
+    nativeActive = false;      // 單次朗讀會先停掉原生連播
+    return NSpeech.speak({ parts, rate: settings.rate, lang: settings.lang, autoZh: autoZh() })
+      .then((r) => !!(r && r.completed) && token === speakToken)
+      .catch(() => false);
+  }
   if (!synth) return sleep(2500).then(() => token === speakToken);
   const busy = synth.speaking || synth.pending;
   if (busy) synth.cancel();
@@ -213,9 +214,13 @@ function speakParts(parts) {
 }
 let advTimer = 0;
 const clearAdv = () => { clearTimeout(advTimer); advTimer = 0; };
-function stopSpeech() { speakToken++; clearAdv(); if (synth) synth.cancel(); }
-// 連播中切到背景／關螢幕不要停（靠背景保活繼續播）；其他情況照舊停止
-document.addEventListener("visibilitychange", () => { if (document.hidden && !autoWant()) stopSpeech(); });
+function stopSpeech() {
+  speakToken++; clearAdv();
+  if (NATIVE) { nativeActive = false; NSpeech.stop().catch(() => {}); }
+  else if (synth) synth.cancel();
+}
+// 原生 App 連播中切到背景／關螢幕不要停（背景服務繼續播）；網頁版和其他情況照舊停止
+document.addEventListener("visibilitychange", () => { if (document.hidden && !(NATIVE && autoWant())) stopSpeech(); });
 
 /* ------------------------------------------------------------------ */
 /* Toast                                                                */
@@ -299,6 +304,16 @@ function init() {
 
   $("#au-google").onclick = async () => {
     authMsg("");
+    if (NATIVE) {
+      // 原生 App：Google 不允許在內嵌網頁裡登入，改用 Android 原生的 Google 登入，再把憑證交給 Firebase
+      try {
+        const r = await window.Capacitor.Plugins.FirebaseAuthentication.signInWithGoogle();
+        const idToken = r && r.credential && r.credential.idToken;
+        if (!idToken) throw new Error("沒有取得 Google 憑證");
+        await signInWithCredential(auth, GoogleAuthProvider.credential(idToken));
+      } catch (err) { authMsg(authError(err)); }
+      return;
+    }
     try {
       await signInWithPopup(auth, provider);
     } catch (err) {
@@ -309,8 +324,11 @@ function init() {
       authMsg(authError(err));
     }
   };
-  getRedirectResult(auth).catch((err) => authMsg(authError(err)));
-  $("#s-logout").onclick = () => { stopSpeech(); signOut(auth); };
+  if (!NATIVE) getRedirectResult(auth).catch((err) => authMsg(authError(err)));
+  $("#s-logout").onclick = () => {
+    stopSpeech(); signOut(auth);
+    if (NATIVE) window.Capacitor.Plugins.FirebaseAuthentication.signOut().catch(() => {});
+  };
 
   onAuthStateChanged(auth, (user) => {
     if (user) {
@@ -479,6 +497,7 @@ function init() {
     const c = state.current;
     if (!c) return;
     clearAdv();
+    if (NATIVE && settings.autoNext && !parts) { startNativeSession(c); return; }
     // 勾「朗讀時唸出中文」：單字 → 備註 → 英文例句 → 中文例句；沒勾：單字 → 英文例句
     const list = parts || (settings.readZh ? [c.word, c.note, c.example, c.trans] : [c.word, c.example]).filter(Boolean);
     let p;
@@ -498,18 +517,17 @@ function init() {
     });
   }
 
-  function showCard() {
+  function showCard(silent) {
     clearAdv();
     const c = nextVisible();
     state.current = c;
     if (!c) return finish();
     renderCard(c);
-    setMediaMeta(c);
     $("#st-progress").textContent = `${state.idx + 1} / ${state.queue.length}`;
     $("#a-keep").textContent = state.mode === "known" ? "還不熟" : "會了";
     const stage = $("#stage");
     stage.classList.remove("swap"); void stage.offsetWidth; stage.classList.add("swap");
-    if (settings.autoplay || settings.autoNext) playCard();
+    if (!silent && (settings.autoplay || settings.autoNext)) playCard();
   }
 
   function finish() {
@@ -541,6 +559,7 @@ function init() {
     const c = state.current;
     if (!c || current !== "study" || editing) return;
     clearAdv();
+    if (NATIVE && (kind === "keep" || kind === "del")) nativeRemove = c.id;
     if (kind === "keep") {
       const patch = state.mode === "known" ? { status: "new" } : { status: "known", knownAt: Date.now() };
       updateDoc(cardRef(c.id), patch).catch(syncError);
@@ -599,49 +618,60 @@ function init() {
     b.dataset.on = m === "off" ? "0" : "1";
     $("#st-mode-txt").textContent = MODE_TXT[m];
   }
-  /* ---------------- 背景保活：螢幕關掉也繼續播 ---------------- */
-  // 連播時循環播放一段聽不到的音訊，讓 Android 把這個頁面當成「正在播放音樂」，
-  // 不會在螢幕關掉後被凍結；同時在鎖屏通知列顯示 播放／暫停／下一張。
-  let kaAudio = null, kaOn = false;
-  const silentWav = () => {
-    const rate = 8000, n = rate, buf = new ArrayBuffer(44 + n * 2), v = new DataView(buf);
-    const w = (o, s) => [...s].forEach((ch, i) => v.setUint8(o + i, ch.charCodeAt(0)));
-    w(0, "RIFF"); v.setUint32(4, 36 + n * 2, true); w(8, "WAVEfmt "); v.setUint32(16, 16, true);
-    v.setUint16(20, 1, true); v.setUint16(22, 1, true); v.setUint32(24, rate, true); v.setUint32(28, rate * 2, true);
-    v.setUint16(32, 2, true); v.setUint16(34, 16, true); w(36, "data"); v.setUint32(40, n * 2, true);
-    for (let i = 0; i < n; i++) v.setInt16(44 + i * 2, i % 2 ? 1 : -1, true);   // 振幅只有 1/32768，聽不到
-    return URL.createObjectURL(new Blob([buf], { type: "audio/wav" }));
-  };
-  const ms = "mediaSession" in navigator ? navigator.mediaSession : null;
-  const msSet = (action, fn) => { try { ms.setActionHandler(action, fn); } catch {} };
-  function setMediaMeta(c) {
-    if (!ms || !c) return;
-    try { ms.metadata = new MediaMetadata({ title: c.word, artist: c.note || "字卡", album: "Flashcards" }); } catch {}
+  /* ---------------- 原生 App：連播交給背景服務（螢幕關掉也繼續唸） ---------------- */
+  // 連播時整個播放流程（單字 → 備註 → 英文例句 → 中文例句 → 下一張）由 Android 前景服務執行，
+  // 網頁這邊只負責同步畫面：服務換卡時通知網頁，切回前景時再對一次進度。
+  function nativeTurnOff() {
+    nativeActive = false;
+    if (settings.autoNext) { settings.autoNext = false; saveSettings(); renderMode(); updateLock(); }
   }
-  function msHandlers() {
-    msSet("play", () => {
-      if (current === "verb") { settings.vauto = true; saveSettings(); vqRenderMode(); if (vq.done && vq.card) speakExamples(); }
-      else if (current === "study") { settings.autoNext = true; saveSettings(); renderMode(); updateLock(); playCard(); }
-    });
-    msSet("pause", () => {
-      if (current === "verb") { settings.vauto = false; saveSettings(); clearTimeout(vq.timer); stopSpeech(); vqRenderMode(); }
-      else { settings.autoNext = false; saveSettings(); stopSpeech(); renderMode(); updateLock(); }
-    });
-    msSet("nexttrack", () => { if (current === "study") act("next"); else if (current === "verb") vqNext(); });
+  function onNativeCard(e) {
+    if (!settings.autoNext || current !== "study" || editing || !e) return;
+    if (e.ids && e.ids.length) state.queue = e.ids.slice();      // 服務重新排了一輪
+    const i = state.queue.indexOf(e.id);
+    if (i < 0) return;
+    state.idx = i;
+    state.stats.next++;
+    showCard(true);
   }
-  onKeepAlive = (on) => {
-    if (on === kaOn) return;
-    kaOn = on;
-    if (on) {
-      if (!kaAudio) { kaAudio = new Audio(silentWav()); kaAudio.loop = true; }
-      kaAudio.play().catch(() => {});             // 被擋的話，下面的點擊監聽會再試一次
-      if (ms) { msHandlers(); ms.playbackState = "playing"; setMediaMeta(state.current); }
-    } else {
-      if (kaAudio) kaAudio.pause();
-      if (ms) ms.playbackState = "none";
-    }
-  };
-  document.addEventListener("pointerdown", () => { if (kaOn && kaAudio && kaAudio.paused) kaAudio.play().catch(() => {}); }, true);
+  function syncNative() {
+    if (!NATIVE || !settings.autoNext || current !== "study") return;
+    NSpeech.getSession().then((r) => {
+      if (!r || !r.active) { if (nativeActive) nativeTurnOff(); return; }
+      nativeActive = true;
+      let i = state.queue.indexOf(r.id);
+      if (i < 0 && r.ids && r.ids.length) { state.queue = r.ids.slice(); i = state.queue.indexOf(r.id); }
+      if (i >= 0 && (i !== state.idx || !state.current || state.current.id !== r.id)) { state.idx = i; showCard(true); }
+    }).catch(() => {});
+  }
+  if (NATIVE) {
+    NSpeech.stop().catch(() => {});                  // 重新開啟 App 時，清掉上次殘留的背景連播
+    NSpeech.addListener("card", onNativeCard);
+    NSpeech.addListener("state", (e) => { if (e && e.active === false) nativeTurnOff(); });
+    document.addEventListener("visibilitychange", () => { if (!document.hidden) syncNative(); });
+  }
+  function startNativeSession(c) {
+    speakToken++;                                   // 取消網頁端進行中的朗讀
+    const ids = state.queue.slice(state.idx).filter((id) => { const x = state.cards.get(id); return x && inMode(x); });
+    if (!ids.includes(c.id)) ids.unshift(c.id);
+    const payload = {
+      ids, rate: settings.rate, lang: settings.lang, autoZh: autoZh(),
+      readZh: !!settings.readZh, loop: !!settings.loop, shuffle: !!settings.shuffle, remove: nativeRemove,
+    };
+    nativeRemove = null;
+    const pool = () => inRange("word", [...state.cards.values()]).filter(inMode)
+      .sort((a, b) => (a.createdAt || 0) - (b.createdAt || 0))
+      .map((x) => ({ id: x.id, w: x.word || "", n: x.note || "", e: x.example || "", t: x.trans || "" }));
+    if (!nativeActive) payload.cards = pool();
+    NSpeech.startSession(payload).then(() => { nativeActive = true; }).catch((err) => {
+      if (String((err && err.message) || err).includes("NEED_CARDS")) {
+        payload.cards = pool();
+        return NSpeech.startSession(payload).then(() => { nativeActive = true; });
+      }
+      nativeActive = false;
+      toast("無法啟動背景朗讀");
+    });
+  }
 
   $("#st-mode").onclick = () => {
     const m = curMode();
@@ -650,7 +680,7 @@ function init() {
     saveSettings();
     renderMode();
     updateLock();
-    if (settings.autoNext) playCard(); else clearAdv();
+    if (settings.autoNext) playCard(); else { clearAdv(); if (NATIVE) stopSpeech(); }
   };
 
   /* ---------------- 練習範圍（依序號；設定存雲端） ---------------- */
@@ -1633,17 +1663,7 @@ function init() {
   }
 
   /* ---------------- 設定 ---------------- */
-  fillZhVoices = function () {
-    const sel = $("#s-zhvoice");
-    if (!sel) return;
-    const list = zhVoices().sort((a, b) => voiceScore(b) - voiceScore(a));
-    sel.innerHTML = "";
-    sel.add(new Option("自動（挑最好的）", ""));
-    list.forEach((v) => sel.add(new Option(`${v.name} (${v.lang})`, v.voiceURI || v.name)));
-    sel.value = settings.zhVoice && list.some((v) => (v.voiceURI || v.name) === settings.zhVoice) ? settings.zhVoice : "";
-  };
   function fillSettings() {
-    fillZhVoices();
     const sl = $("#s-lang");
     if (!sl.options.length) LANGS.forEach(([v, t]) => sl.add(new Option(t, v)));
     sl.value = settings.lang;
@@ -1656,7 +1676,6 @@ function init() {
     $("#s-account").textContent = auth.currentUser?.email || "";
   }
   $("#s-lang").onchange = (e) => { settings.lang = e.target.value; saveSettings(); };
-  $("#s-zhvoice").onchange = (e) => { settings.zhVoice = e.target.value; saveSettings(); };
   $("#s-readzh").onchange = (e) => { settings.readZh = e.target.checked; saveSettings(); };
   $("#s-rate").oninput = (e) => {
     settings.rate = parseFloat(e.target.value);
