@@ -104,7 +104,7 @@ document.addEventListener("visibilitychange", updateLock);
 /* ------------------------------------------------------------------ */
 /* 本機設定（語音每台裝置不同，所以不放雲端）                              */
 /* ------------------------------------------------------------------ */
-const DEFAULTS = { lang: "en-US", readZh: true, rate: 0.95, autoplay: true, shuffle: true, autoNext: false, loop: false, fx: true, vmode: "quiz", vauto: false };
+const DEFAULTS = { lang: "en-US", zhVoice: "", readZh: true, rate: 0.95, autoplay: true, shuffle: true, autoNext: false, loop: false, fx: true, vmode: "quiz", vauto: false };
 function readSettings() {
   try { return { ...DEFAULTS, ...JSON.parse(localStorage.getItem("wc.settings") || "{}") }; }
   catch { return { ...DEFAULTS }; }
@@ -126,12 +126,14 @@ const SAMPLES = {
 /* ------------------------------------------------------------------ */
 const synth = "speechSynthesis" in window ? window.speechSynthesis : null;
 let voices = [];
+let fillZhVoices = null;
 let speakToken = 0;
 const normLang = (l) => String(l || "").replace("_", "-").toLowerCase().replace(/^cmn/, "zh");
 
 function loadVoices() {
   if (!synth) return;
   voices = synth.getVoices();
+  if (typeof fillZhVoices === "function") fillZhVoices();
 }
 if (synth) { loadVoices(); synth.onvoiceschanged = loadVoices; }
 
@@ -144,6 +146,7 @@ function voiceScore(v) {
   if (/google/.test(n)) s += 60;                         // Android／Chrome 的 Google 語音
   if (/samantha|ava|allison|serena|daniel|karen|moira|tessa|zoe|evan|nathan/.test(n)) s += 20;
   if (/compact|espeak|novelty|bad news|bahh|bells|boing|bubbles|cellos|deranged|good news|hysterical|jester|organ|trinoids|whisper|zarvox|albert|fred|junior|kathy|ralph|superstar/.test(n)) s -= 100;
+  if (/hanhan|yating|zhiwei|huihui|kangkang|yaoyao/.test(n) && !/natural|online/.test(n)) s -= 50; // Windows 舊式離線中文語音，聲調與多音字很差
   if (!v.localService) s += 10;                          // 雲端語音通常較好（需要網路）
   return s;
 }
@@ -157,6 +160,10 @@ function pickVoice(lang = settings.lang) {
   if (!voices.length) return null;
   const want = normLang(lang);
   const prim = want.split("-")[0];
+  if (prim === "zh" && settings.zhVoice) {   // 使用者手動指定的中文語音優先
+    const chosen = voices.find((v) => v.voiceURI === settings.zhVoice || v.name === settings.zhVoice);
+    if (chosen) return chosen;
+  }
   const pool = prim === "zh" ? zhVoices() : voices;
   const best = (list) => list.sort((a, b) => voiceScore(b) - voiceScore(a))[0] || null;
   return best(pool.filter((v) => normLang(v.lang) === want))
@@ -1626,7 +1633,17 @@ function init() {
   }
 
   /* ---------------- 設定 ---------------- */
+  fillZhVoices = function () {
+    const sel = $("#s-zhvoice");
+    if (!sel) return;
+    const list = zhVoices().sort((a, b) => voiceScore(b) - voiceScore(a));
+    sel.innerHTML = "";
+    sel.add(new Option("自動（挑最好的）", ""));
+    list.forEach((v) => sel.add(new Option(`${v.name} (${v.lang})`, v.voiceURI || v.name)));
+    sel.value = settings.zhVoice && list.some((v) => (v.voiceURI || v.name) === settings.zhVoice) ? settings.zhVoice : "";
+  };
   function fillSettings() {
+    fillZhVoices();
     const sl = $("#s-lang");
     if (!sl.options.length) LANGS.forEach(([v, t]) => sl.add(new Option(t, v)));
     sl.value = settings.lang;
@@ -1639,6 +1656,7 @@ function init() {
     $("#s-account").textContent = auth.currentUser?.email || "";
   }
   $("#s-lang").onchange = (e) => { settings.lang = e.target.value; saveSettings(); };
+  $("#s-zhvoice").onchange = (e) => { settings.zhVoice = e.target.value; saveSettings(); };
   $("#s-readzh").onchange = (e) => { settings.readZh = e.target.checked; saveSettings(); };
   $("#s-rate").oninput = (e) => {
     settings.rate = parseFloat(e.target.value);
