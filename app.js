@@ -80,10 +80,16 @@ document.addEventListener("keydown", (e) => {
   e.stopImmediatePropagation(); closeMenus();
 }, true);
 
-// 連播時保持螢幕不熄滅（鎖屏或切到背景時，瀏覽器會中斷語音合成）
+// 連播（字卡）或純看連播（動詞）進行中
+const autoWant = () => (settings.autoNext && current === "study") || (current === "verb" && settings.vmode === "look" && settings.vauto);
+// 連播時的背景保活（無聲音訊＋媒體控制），實作在下面主程式裡
+let onKeepAlive = () => {};
+
+// 連播時保持螢幕不熄滅
 let wakeLock = null;
 async function updateLock() {
-  const want = ((settings.autoNext && current === "study") || (current === "verb" && settings.vmode === "look" && settings.vauto)) && !document.hidden;
+  onKeepAlive(autoWant());
+  const want = autoWant() && !document.hidden;
   try {
     if (want && !wakeLock && navigator.wakeLock) {
       wakeLock = await navigator.wakeLock.request("screen");
@@ -201,7 +207,8 @@ function speakParts(parts) {
 let advTimer = 0;
 const clearAdv = () => { clearTimeout(advTimer); advTimer = 0; };
 function stopSpeech() { speakToken++; clearAdv(); if (synth) synth.cancel(); }
-document.addEventListener("visibilitychange", () => { if (document.hidden) stopSpeech(); });
+// 連播中切到背景／關螢幕不要停（靠背景保活繼續播）；其他情況照舊停止
+document.addEventListener("visibilitychange", () => { if (document.hidden && !autoWant()) stopSpeech(); });
 
 /* ------------------------------------------------------------------ */
 /* Toast                                                                */
@@ -490,6 +497,7 @@ function init() {
     state.current = c;
     if (!c) return finish();
     renderCard(c);
+    setMediaMeta(c);
     $("#st-progress").textContent = `${state.idx + 1} / ${state.queue.length}`;
     $("#a-keep").textContent = state.mode === "known" ? "還不熟" : "會了";
     const stage = $("#stage");
@@ -584,6 +592,50 @@ function init() {
     b.dataset.on = m === "off" ? "0" : "1";
     $("#st-mode-txt").textContent = MODE_TXT[m];
   }
+  /* ---------------- 背景保活：螢幕關掉也繼續播 ---------------- */
+  // 連播時循環播放一段聽不到的音訊，讓 Android 把這個頁面當成「正在播放音樂」，
+  // 不會在螢幕關掉後被凍結；同時在鎖屏通知列顯示 播放／暫停／下一張。
+  let kaAudio = null, kaOn = false;
+  const silentWav = () => {
+    const rate = 8000, n = rate, buf = new ArrayBuffer(44 + n * 2), v = new DataView(buf);
+    const w = (o, s) => [...s].forEach((ch, i) => v.setUint8(o + i, ch.charCodeAt(0)));
+    w(0, "RIFF"); v.setUint32(4, 36 + n * 2, true); w(8, "WAVEfmt "); v.setUint32(16, 16, true);
+    v.setUint16(20, 1, true); v.setUint16(22, 1, true); v.setUint32(24, rate, true); v.setUint32(28, rate * 2, true);
+    v.setUint16(32, 2, true); v.setUint16(34, 16, true); w(36, "data"); v.setUint32(40, n * 2, true);
+    for (let i = 0; i < n; i++) v.setInt16(44 + i * 2, i % 2 ? 1 : -1, true);   // 振幅只有 1/32768，聽不到
+    return URL.createObjectURL(new Blob([buf], { type: "audio/wav" }));
+  };
+  const ms = "mediaSession" in navigator ? navigator.mediaSession : null;
+  const msSet = (action, fn) => { try { ms.setActionHandler(action, fn); } catch {} };
+  function setMediaMeta(c) {
+    if (!ms || !c) return;
+    try { ms.metadata = new MediaMetadata({ title: c.word, artist: c.note || "字卡", album: "Flashcards" }); } catch {}
+  }
+  function msHandlers() {
+    msSet("play", () => {
+      if (current === "verb") { settings.vauto = true; saveSettings(); vqRenderMode(); if (vq.done && vq.card) speakExamples(); }
+      else if (current === "study") { settings.autoNext = true; saveSettings(); renderMode(); updateLock(); playCard(); }
+    });
+    msSet("pause", () => {
+      if (current === "verb") { settings.vauto = false; saveSettings(); clearTimeout(vq.timer); stopSpeech(); vqRenderMode(); }
+      else { settings.autoNext = false; saveSettings(); stopSpeech(); renderMode(); updateLock(); }
+    });
+    msSet("nexttrack", () => { if (current === "study") act("next"); else if (current === "verb") vqNext(); });
+  }
+  onKeepAlive = (on) => {
+    if (on === kaOn) return;
+    kaOn = on;
+    if (on) {
+      if (!kaAudio) { kaAudio = new Audio(silentWav()); kaAudio.loop = true; }
+      kaAudio.play().catch(() => {});             // 被擋的話，下面的點擊監聽會再試一次
+      if (ms) { msHandlers(); ms.playbackState = "playing"; setMediaMeta(state.current); }
+    } else {
+      if (kaAudio) kaAudio.pause();
+      if (ms) ms.playbackState = "none";
+    }
+  };
+  document.addEventListener("pointerdown", () => { if (kaOn && kaAudio && kaAudio.paused) kaAudio.play().catch(() => {}); }, true);
+
   $("#st-mode").onclick = () => {
     const m = curMode();
     settings.autoNext = m === "off" ? true : m === "next";
