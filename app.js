@@ -98,7 +98,7 @@ document.addEventListener("visibilitychange", updateLock);
 /* ------------------------------------------------------------------ */
 /* 本機設定（語音每台裝置不同，所以不放雲端）                              */
 /* ------------------------------------------------------------------ */
-const DEFAULTS = { lang: "en-US", voice: "", voiceZh: "", readZh: true, rate: 0.95, autoplay: true, shuffle: true, autoNext: false, loop: false, fx: true, vmode: "quiz", vauto: false };
+const DEFAULTS = { lang: "en-US", readZh: true, rate: 0.95, autoplay: true, shuffle: true, autoNext: false, loop: false, fx: true, vmode: "quiz", vauto: false };
 function readSettings() {
   try { return { ...DEFAULTS, ...JSON.parse(localStorage.getItem("wc.settings") || "{}") }; }
   catch { return { ...DEFAULTS }; }
@@ -126,7 +126,6 @@ const normLang = (l) => String(l || "").replace("_", "-").toLowerCase().replace(
 function loadVoices() {
   if (!synth) return;
   voices = synth.getVoices();
-  if (current === "settings") fillVoices();
 }
 if (synth) { loadVoices(); synth.onvoiceschanged = loadVoices; }
 
@@ -142,22 +141,14 @@ function voiceScore(v) {
   if (!v.localService) s += 10;                          // 雲端語音通常較好（需要網路）
   return s;
 }
-const voiceLabel = (v) => {
-  const s = voiceScore(v);
-  return `${s >= 80 ? "★ " : ""}${v.name} (${v.lang})`;
-};
 
 // 中文語音（排除粵語）；發音語言是英文／歐語系時，中文片段（備註等）自動改用中文語音
 const ZH_LANG = "zh-TW";
 const zhVoices = () => voices.filter((v) => normLang(v.lang).startsWith("zh") && !/hk|yue/.test(normLang(v.lang)) && !/粵|粤|廣東|广东|cantonese/i.test(v.name));
 const autoZh = () => !/^(zh|ja|ko)/.test(normLang(settings.lang));
 
-function pickVoice(lang = settings.lang, name = settings.voice) {
+function pickVoice(lang = settings.lang) {
   if (!voices.length) return null;
-  if (name) {
-    const v = voices.find((x) => x.name === name);
-    if (v) return v;
-  }
   const want = normLang(lang);
   const prim = want.split("-")[0];
   const pool = prim === "zh" ? zhVoices() : voices;
@@ -172,7 +163,7 @@ function utter(text, zh = false) {
     const u = new SpeechSynthesisUtterance(text);
     u.lang = zh ? ZH_LANG : settings.lang;
     u.rate = settings.rate;
-    const v = zh ? pickVoice(ZH_LANG, settings.voiceZh) : pickVoice();
+    const v = zh ? pickVoice(ZH_LANG) : pickVoice();
     if (v) u.voice = v;
     // 防呆：Android／Chrome 偶爾不會觸發 onend，超時就強制往下走，連播才不會卡死
     let timer = 0;
@@ -1583,24 +1574,10 @@ function init() {
   }
 
   /* ---------------- 設定 ---------------- */
-  function fillVoices() {
-    const fill = (sv, list, selected) => {
-      sv.textContent = "";
-      sv.add(new Option("自動（建議）", ""));
-      list.sort((a, b) => voiceScore(b) - voiceScore(a)).forEach((v) => sv.add(new Option(voiceLabel(v), v.name)));
-      sv.value = [...sv.options].some((o) => o.value === selected) ? selected : "";
-    };
-    const prim = settings.lang.split("-")[0].toLowerCase();
-    fill($("#s-voice"), voices.filter((v) => normLang(v.lang).startsWith(prim)), settings.voice);
-    const zh = zhVoices();
-    fill($("#s-voice-zh"), zh, settings.voiceZh);
-    $("#s-zh-hint").hidden = zh.length > 0 || !voices.length;
-  }
   function fillSettings() {
     const sl = $("#s-lang");
     if (!sl.options.length) LANGS.forEach(([v, t]) => sl.add(new Option(t, v)));
     sl.value = settings.lang;
-    fillVoices();
     $("#s-rate").value = settings.rate;
     $("#s-rate-out").textContent = settings.rate.toFixed(2) + "×";
     $("#s-auto").checked = settings.autoplay;
@@ -1609,9 +1586,7 @@ function init() {
     $("#s-fx").checked = settings.fx;
     $("#s-account").textContent = auth.currentUser?.email || "";
   }
-  $("#s-lang").onchange = (e) => { settings.lang = e.target.value; settings.voice = ""; saveSettings(); fillVoices(); };
-  $("#s-voice").onchange = (e) => { settings.voice = e.target.value; saveSettings(); };
-  $("#s-voice-zh").onchange = (e) => { settings.voiceZh = e.target.value; saveSettings(); };
+  $("#s-lang").onchange = (e) => { settings.lang = e.target.value; saveSettings(); };
   $("#s-readzh").onchange = (e) => { settings.readZh = e.target.checked; saveSettings(); };
   $("#s-rate").oninput = (e) => {
     settings.rate = parseFloat(e.target.value);
