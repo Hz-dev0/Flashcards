@@ -2,7 +2,8 @@
 
 /**
  * 解析批量匯入文字。
- * 每行一張：  單字  例句  備註(選填)   （欄位之間用兩個空白隔開；Tab 分隔也可以）
+ * 每行一張：  單字  例句  備註(選填)  例句翻譯(選填)   （欄位之間用兩個空白隔開；Tab 分隔也可以；
+ * 有欄位要留空、後面還有欄位時請用 Tab）
  * 空行、以 # 或 // 開頭的行會略過。
  */
 export function parseImport(text, opts = {}) {
@@ -17,12 +18,12 @@ export function parseImport(text, opts = {}) {
       if (!line || (comments && (line.startsWith("#") || line.startsWith("//")))) return;
       // Tab 優先；否則用「兩個以上空白」；都沒有才退回舊的 | 格式
       const sep = line.includes("\t") ? "\t" : /\s{2,}/.test(line) ? /\s{2,}/ : "|";
-      const [word = "", example = "", ...rest] = line.split(sep).map((s) => s.trim());
+      const [word = "", example = "", note = "", ...rest] = line.split(sep).map((s) => s.trim());
       if (!word) {
         skipped.push({ line: i + 1, reason: "缺少單字" });
         return;
       }
-      rows.push({ word, example, note: rest.join("  "), line: i + 1 });
+      rows.push({ word, example, note, trans: rest.filter(Boolean).join("  "), line: i + 1 });
     });
   return { rows, skipped };
 }
@@ -63,31 +64,53 @@ export function splitHighlight(text, word) {
   return out;
 }
 
+/**
+ * 把一段文字切成「中文／非中文」片段，讓中文用中文語音、英文用英文語音念。
+ * 數字、空白、半形標點跟著前一個片段走；全形標點算中文。
+ */
+export function langSegments(text) {
+  const s = String(text || "");
+  const isZh = (ch) => /[\u3400-\u9FFF\uF900-\uFAFF\u3000-\u303F\uFF00-\uFFEF]/.test(ch);
+  const isLatin = (ch) => /[A-Za-z\u00C0-\u024F]/.test(ch);
+  const out = [];
+  let cur = null, pend = "";
+  for (const ch of s) {
+    let zh;
+    if (isZh(ch)) zh = true;
+    else if (isLatin(ch)) zh = false;
+    else { if (cur) cur.text += ch; else pend += ch; continue; }
+    if (cur && cur.zh === zh) cur.text += ch;
+    else { cur = { zh, text: pend + ch }; pend = ""; out.push(cur); }
+  }
+  if (!cur && pend) out.push({ zh: false, text: pend });
+  return out.map((o) => ({ zh: o.zh, text: o.text.trim() })).filter((o) => o.text);
+}
+
 /** 單行內欄位正規化：換行／Tab／連續空白都壓成一個空白 */
 const flat = (s) => String(s || "").replace(/\s+/g, " ").trim();
 
-/** 卡片 → 總編輯的一行文字（欄位以兩個空白隔開；有備註沒例句時改用 Tab） */
+/** 卡片 → 總編輯的一行文字（欄位以兩個空白隔開；中間有欄位留空時整行改用 Tab） */
 export function cardToLine(c) {
-  const w = flat(c.word), e = flat(c.example), n = flat(c.note);
-  if (!e && n) return `${w}\t\t${n}`;
-  return [w, e, n].filter((x, i) => i === 0 || x).join("  ");
+  const f = [flat(c.word), flat(c.example), flat(c.note), flat(c.trans)];
+  while (f.length > 1 && !f[f.length - 1]) f.pop();      // 後面沒內容就不用留空欄
+  return f.some((x) => !x) ? f.join("\t") : f.join("  ");
 }
 
 /** 比對用 key（內容完全相同的行視為「沒改」） */
-export const rowKey = (r) => `${flat(r.word)}\u0000${flat(r.example)}\u0000${flat(r.note)}`;
+export const rowKey = (r) => `${flat(r.word)}\u0000${flat(r.example)}\u0000${flat(r.note)}\u0000${flat(r.trans)}`;
 
 /** 行首編號：`[12] 單字  例句  備註` */
 export const bulkLine = (c, n) => `[${n}] ${cardToLine(c)}`;
 
-/** 解析總編輯文字 → [{ id: 編號或 null, word, example, note }]；空行略過，不處理註解 */
+/** 解析總編輯文字 → [{ id: 編號或 null, word, example, note, trans }]；空行略過，不處理註解 */
 export function parseBulk(text) {
   const out = [];
   String(text || "").replace(/\r/g, "").split("\n").forEach((raw) => {
     if (!raw.trim()) return;
     const m = /^\s*\[(\d+)\][ \t]*/.exec(raw);
     const rest = m ? raw.slice(m[0].length) : raw;
-    const row = parseImport(rest, { comments: false }).rows[0] || { word: "", example: "", note: "" };
-    out.push({ id: m ? Number(m[1]) : null, word: row.word, example: row.example, note: row.note });
+    const row = parseImport(rest, { comments: false }).rows[0] || { word: "", example: "", note: "", trans: "" };
+    out.push({ id: m ? Number(m[1]) : null, word: row.word, example: row.example, note: row.note, trans: row.trans });
   });
   return out;
 }

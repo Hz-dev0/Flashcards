@@ -14,7 +14,7 @@
   <link rel="manifest" href="manifest.json">
   <link rel="icon" type="image/png" href="icons/icon-192.png">
   <link rel="apple-touch-icon" href="icons/icon-192.png">
-  <link rel="stylesheet" href="style.css?v=23">
+  <link rel="stylesheet" href="style.css?v=24">
 </head>
 <body>
   <!-- icon sprite -->
@@ -95,6 +95,7 @@
     <div id="stage" class="stage">
       <h1 id="c-word" class="word"></h1>
       <p id="c-example" class="example"></p>
+      <button type="button" id="c-trans" class="trans" aria-expanded="false" hidden></button>
       <p id="c-note" class="note"></p>
     </div>
     <footer class="actions">
@@ -174,7 +175,7 @@
       <span class="bar-r"><button class="icon txt" id="m-bulk">文字編輯</button><button class="icon txt" id="m-import">匯入</button></span>
     </header>
     <div class="m-tools">
-      <input id="m-q" type="search" placeholder="搜尋單字、例句、備註" autocomplete="off" spellcheck="false">
+      <input id="m-q" type="search" placeholder="搜尋單字、例句、備註、翻譯" autocomplete="off" spellcheck="false">
       <div class="seg" role="group" aria-label="篩選">
         <button type="button" data-f="all" aria-pressed="true">全部</button>
         <button type="button" data-f="new" aria-pressed="false">待學</button>
@@ -183,7 +184,7 @@
     </div>
     <p class="muted small m-hint">直接點格子修改，離開格子就自動儲存。</p>
     <table class="m-table">
-      <thead><tr><th>單字</th><th>例句</th><th>備註</th><th>狀態</th><th></th></tr></thead>
+      <thead><tr><th>單字</th><th>例句</th><th>備註</th><th>例句翻譯</th><th>狀態</th><th></th></tr></thead>
       <tbody id="m-body"></tbody>
     </table>
     <button class="link" id="m-more" hidden>顯示更多</button>
@@ -205,7 +206,7 @@
       <button class="link" id="bk-seed" type="button" hidden>補入內建動詞</button>
     </div>
     <p id="bk-hint-verb" class="muted small m-hint" hidden>一行一個動詞：<code>[編號] V1  V2  V3  例句1  例句2  例句3  備註</code>（欄位間兩個空白；有欄位留空時要用 Tab 隔開，儲存後 App 會自動整理成正確格式）。V2／V3 有兩種寫法時用 <code>/</code> 隔開，例如 <code>was/were</code>。<b>編號請保留</b>；新增就另起一行不寫編號；刪掉整行＝刪除。快捷鍵 Ctrl+S。</p>
-    <p id="bk-hint-word" class="muted small m-hint">一行一張：<code>[編號] 單字  例句  備註</code>（欄位間兩個空白）。<b>編號請保留</b>；要新增就另起一行直接寫 <code>單字  例句  備註</code>，儲存後會自動補上編號；刪掉整行＝刪除。調整行的順序會一併儲存。快捷鍵 Ctrl+S。</p>
+    <p id="bk-hint-word" class="muted small m-hint">一行一張：<code>[編號] 單字  例句  備註  例句翻譯</code>（欄位間兩個空白；中間有欄位留空時要用 Tab 隔開，儲存後 App 會自動整理成正確格式）。<b>編號請保留</b>；要新增就另起一行直接寫 <code>單字  例句  備註  例句翻譯</code>，儲存後會自動補上編號；刪掉整行＝刪除。調整行的順序會一併儲存。快捷鍵 Ctrl+S。</p>
     <textarea id="bk-text" class="bulk" spellcheck="false" autocapitalize="off" wrap="off"></textarea>
     <p id="bk-sum" class="muted small"></p>
   </section>
@@ -229,13 +230,14 @@
     </header>
     <details class="help">
       <summary>格式說明</summary>
-      <p>一行一張：<code>單字  例句  備註（選填）</code>（欄位之間打<b>兩個空白</b>）</p>
-      <pre>ephemeral  Fame can be ephemeral.  短暫的
-resilient  She is resilient.
+      <p>一行一張：<code>單字  例句  備註  例句翻譯</code>（欄位之間打<b>兩個空白</b>；備註、例句翻譯可省略）</p>
+      <pre>ephemeral  Fame can be ephemeral.  短暫的  名氣可能很短暫。
+resilient  She is resilient.  有韌性的
+pragmatic  We need a pragmatic solution.
 # 這行是註解，空行會略過</pre>
-      <p>從 Excel / 試算表複製貼上（Tab 分隔）也可以。已存在的相同單字＋例句會自動略過。</p>
+      <p>備註想留空、但後面還有例句翻譯時，欄位之間要改用 <b>Tab</b>。從 Excel / 試算表複製貼上（一欄對一欄，Tab 分隔）最方便，空欄也沒問題。已存在的相同單字＋例句會自動略過。</p>
     </details>
-    <textarea id="im-text" spellcheck="false" autocapitalize="off" placeholder="單字  例句  備註（選填）"></textarea>
+    <textarea id="im-text" spellcheck="false" autocapitalize="off" placeholder="單字  例句  備註（選填）  例句翻譯（選填）"></textarea>
     <label class="link file">選擇 .txt / .tsv 檔<input id="im-file" type="file" accept=".txt,.tsv,text/plain" hidden></label>
     <p id="im-preview" class="muted small"></p>
     <button class="btn primary" id="im-go" disabled>匯入</button>
@@ -250,10 +252,13 @@ resilient  She is resilient.
     </header>
     <label class="field"><span>發音語言</span><select id="s-lang"></select></label>
     <label class="field"><span>語音</span><select id="s-voice"></select></label>
+    <label class="field"><span>中文語音（唸備註用）</span><select id="s-voice-zh"></select></label>
+    <p id="s-zh-hint" class="muted small" hidden>這台裝置找不到中文語音，備註可能唸不出來或用英文腔唸。Android 請安裝／啟用 Google 語音的中文；Windows 請在「設定 → 時間與語言 → 語言與區域」加入繁體中文並安裝語音。</p>
     <label class="field"><span>語速 <output id="s-rate-out"></output></span>
       <input id="s-rate" type="range" min="0.5" max="1.3" step="0.05">
     </label>
     <label class="check"><input id="s-auto" type="checkbox"> 換到新卡時自動朗讀</label>
+    <label class="check"><input id="s-note" type="checkbox"> 朗讀時唸備註（單字 → 備註 → 例句）</label>
     <label class="check"><input id="s-shuffle" type="checkbox"> 隨機順序</label>
     <label class="check"><input id="s-fx" type="checkbox"> 動詞三態：答題音效與震動</label>
     <button class="btn" id="s-test">試聽</button>
@@ -274,6 +279,7 @@ resilient  She is resilient.
       <label class="field"><span>單字</span><input id="ed-word" autocomplete="off" autocapitalize="off" spellcheck="false"></label>
       <label class="field"><span>例句</span><textarea id="ed-example" rows="3" spellcheck="false"></textarea></label>
       <label class="field"><span>備註</span><input id="ed-note" autocomplete="off"></label>
+      <label class="field"><span>例句翻譯</span><textarea id="ed-trans" rows="2" spellcheck="false"></textarea></label>
       <div class="sheet-act">
         <button type="button" class="btn" id="ed-cancel">取消</button>
         <button type="submit" class="btn primary">儲存</button>
@@ -332,6 +338,6 @@ resilient  She is resilient.
   </div>
 
   <script src="pwa.js" defer></script>
-  <script type="module" src="app.js?v=23"></script>
+  <script type="module" src="app.js?v=24"></script>
 </body>
 </html>

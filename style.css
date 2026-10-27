@@ -107,6 +107,10 @@ hr { border: 0; border-top: 1px solid var(--line); margin: 24px 0; }
 .example { margin: 0; font-size: 1.25rem; line-height: 1.65; color: var(--fg2); cursor: pointer; text-wrap: pretty; }
 .example b { color: var(--fg); font-weight: 600; }
 .note { margin: 0; font-size: 1rem; color: var(--muted); }
+#c-note { cursor: pointer; }
+/* 例句翻譯：平常是一顆淡淡的提示，點一下變成翻譯文字，再點一下收起來 */
+.trans { align-self: center; margin: 0; max-width: 100%; border: 1px dashed var(--line); background: none; color: var(--muted); font: inherit; font-size: 0.92rem; line-height: 1.6; padding: 6px 14px; border-radius: 999px; cursor: pointer; text-wrap: pretty; -webkit-tap-highlight-color: transparent; }
+.trans[data-open="1"] { border-color: transparent; color: var(--fg2); font-size: 1.1rem; border-radius: 12px; }
 .stage.swap { animation: swap 0.16s ease; }
 @keyframes swap { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; transform: none; } }
 .actions { display: grid; grid-template-columns: 1fr 3fr; gap: 10px; padding-top: 12px; }
@@ -155,11 +159,12 @@ input.sw:checked::after { transform: translateX(14px); box-shadow: none; }
 .m-table { width: 100%; border-collapse: collapse; table-layout: fixed; }
 .m-table th { text-align: left; font-size: 13px; font-weight: 500; color: var(--muted); padding: 6px 8px; border-bottom: 1px solid var(--line); }
 .m-table td { padding: 4px 2px; border-bottom: 1px solid var(--line); vertical-align: top; }
-.m-table th:nth-child(1) { width: 18%; }
-.m-table th:nth-child(2) { width: 40%; }
-.m-table th:nth-child(3) { width: 22%; }
-.m-table th:nth-child(4) { width: 72px; }
-.m-table th:nth-child(5) { width: 64px; }
+.m-table th:nth-child(1) { width: 14%; }
+.m-table th:nth-child(2) { width: 28%; }
+.m-table th:nth-child(3) { width: 16%; }
+.m-table th:nth-child(4) { width: 26%; }
+.m-table th:nth-child(5) { width: 72px; }
+.m-table th:nth-child(6) { width: 64px; }
 .m-table input, .m-table textarea {
   min-height: 0; resize: none; overflow: hidden; field-sizing: content;
   padding: 8px; border-color: transparent; border-radius: 8px; font-size: 15px; line-height: 1.45;
@@ -178,7 +183,10 @@ input.sw:checked::after { transform: translateX(14px); box-shadow: none; }
   .m-table thead { display: none; }
   .m-table tr { display: grid; grid-template-columns: 1fr auto auto; align-items: center; padding: 10px 0; border-bottom: 1px solid var(--line); }
   .m-table td { border: 0; padding: 0; }
-  .m-table td.c-word, .m-table td.c-example { grid-column: 1 / -1; }
+  .m-table td.c-word, .m-table td.c-example, .m-table td.c-trans { grid-column: 1 / -1; }
+  /* 手機版的順序：單字、例句、例句翻譯、備註、狀態、刪除 */
+  .m-table td.c-word { order: 1; } .m-table td.c-example { order: 2; } .m-table td.c-trans { order: 3; }
+  .m-table td.c-note { order: 4; } .m-table td.c-status { order: 5; } .m-table td.c-del { order: 6; }
   .m-table td.c-word input { font-weight: 600; font-size: 17px; }
 }
 

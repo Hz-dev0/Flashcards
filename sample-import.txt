@@ -1,7 +1,8 @@
-# 格式：單字  例句  備註（選填）　← 欄位之間打兩個空白
+# 格式：單字  例句  備註（選填）  例句翻譯（選填）　← 欄位之間打兩個空白
+# 備註想留空、但後面還有例句翻譯時，欄位之間要改用 Tab
 # 一行一張；# 開頭是註解；空行會略過
 # 從 Excel / Google 試算表複製貼上（Tab 分隔）也可以
-ephemeral  Fame in the internet age can be ephemeral.  短暫的
+ephemeral  Fame in the internet age can be ephemeral.  短暫的  在網路時代，名氣可能轉瞬即逝。
 resilient  She is resilient and recovers quickly from setbacks.  有韌性的
 meticulous  He is meticulous about keeping accurate records.  一絲不苟的
 ambiguous  The contract wording was ambiguous, so we asked for clarification.  模稜兩可的

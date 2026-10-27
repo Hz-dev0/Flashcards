@@ -10,8 +10,8 @@ import {
 import { firebaseConfig } from "./firebase-config.js?v=9";
 import {
   parseImport, cardKey, shuffle, splitHighlight, bulkLine, diffBulk,
-  VERB_FIELDS, verbBulkLine, diffVerbBulk, checkVerbAnswer, verbSay, verbAlts, highlightForm,
-} from "./lib.js?v=10";
+  VERB_FIELDS, verbBulkLine, diffVerbBulk, checkVerbAnswer, verbSay, verbAlts, highlightForm, langSegments,
+} from "./lib.js?v=11";
 import { VERB_SEED } from "./verbs-seed.js?v=1";
 
 const $ = (s) => document.querySelector(s);
@@ -98,7 +98,7 @@ document.addEventListener("visibilitychange", updateLock);
 /* ------------------------------------------------------------------ */
 /* 本機設定（語音每台裝置不同，所以不放雲端）                              */
 /* ------------------------------------------------------------------ */
-const DEFAULTS = { lang: "en-US", voice: "", rate: 0.95, autoplay: true, shuffle: true, autoNext: false, loop: false, fx: true, vmode: "quiz", vauto: false };
+const DEFAULTS = { lang: "en-US", voice: "", voiceZh: "", readNote: true, rate: 0.95, autoplay: true, shuffle: true, autoNext: false, loop: false, fx: true, vmode: "quiz", vauto: false };
 function readSettings() {
   try { return { ...DEFAULTS, ...JSON.parse(localStorage.getItem("wc.settings") || "{}") }; }
   catch { return { ...DEFAULTS }; }
@@ -121,7 +121,7 @@ const SAMPLES = {
 const synth = "speechSynthesis" in window ? window.speechSynthesis : null;
 let voices = [];
 let speakToken = 0;
-const normLang = (l) => String(l || "").replace("_", "-").toLowerCase();
+const normLang = (l) => String(l || "").replace("_", "-").toLowerCase().replace(/^cmn/, "zh");
 
 function loadVoices() {
   if (!synth) return;
@@ -147,26 +147,32 @@ const voiceLabel = (v) => {
   return `${s >= 80 ? "★ " : ""}${v.name} (${v.lang})`;
 };
 
-function pickVoice() {
+// 中文語音（排除粵語）；發音語言是英文／歐語系時，中文片段（備註等）自動改用中文語音
+const ZH_LANG = "zh-TW";
+const zhVoices = () => voices.filter((v) => normLang(v.lang).startsWith("zh") && !/hk|yue/.test(normLang(v.lang)) && !/粵|粤|廣東|广东|cantonese/i.test(v.name));
+const autoZh = () => !/^(zh|ja|ko)/.test(normLang(settings.lang));
+
+function pickVoice(lang = settings.lang, name = settings.voice) {
   if (!voices.length) return null;
-  if (settings.voice) {
-    const v = voices.find((x) => x.name === settings.voice);
+  if (name) {
+    const v = voices.find((x) => x.name === name);
     if (v) return v;
   }
-  const want = normLang(settings.lang);
+  const want = normLang(lang);
   const prim = want.split("-")[0];
+  const pool = prim === "zh" ? zhVoices() : voices;
   const best = (list) => list.sort((a, b) => voiceScore(b) - voiceScore(a))[0] || null;
-  return best(voices.filter((v) => normLang(v.lang) === want))
-      || best(voices.filter((v) => normLang(v.lang).startsWith(prim)))
+  return best(pool.filter((v) => normLang(v.lang) === want))
+      || best(pool.filter((v) => normLang(v.lang).startsWith(prim)))
       || null;
 }
 
-function utter(text) {
+function utter(text, zh = false) {
   return new Promise((resolve) => {
     const u = new SpeechSynthesisUtterance(text);
-    u.lang = settings.lang;
+    u.lang = zh ? ZH_LANG : settings.lang;
     u.rate = settings.rate;
-    const v = pickVoice();
+    const v = zh ? pickVoice(ZH_LANG, settings.voiceZh) : pickVoice();
     if (v) u.voice = v;
     // 防呆：Android／Chrome 偶爾不會觸發 onend，超時就強制往下走，連播才不會卡死
     let timer = 0;
@@ -188,7 +194,13 @@ function speakParts(parts) {
     for (let i = 0; i < parts.length; i++) {
       if (token !== speakToken) return false;
       if (i > 0) { await sleep(350); if (token !== speakToken) return false; }
-      await utter(parts[i]);
+      // 一段文字裡的中文／英文分開念，各用各的語音
+      const segs = autoZh() ? langSegments(parts[i]) : [{ text: parts[i], zh: false }];
+      for (let j = 0; j < segs.length; j++) {
+        if (token !== speakToken) return false;
+        if (j > 0) await sleep(120);
+        await utter(segs[j].text, segs[j].zh);
+      }
     }
     return token === speakToken;
   };
@@ -423,6 +435,12 @@ function init() {
     if (no) { const sup = document.createElement("span"); sup.className = "sn"; sup.textContent = no; sup.title = "序號"; el.append(sup); }
     el.append(text);
   }
+  function setTrans(c, open) {
+    const el = $("#c-trans");
+    el.dataset.open = open ? "1" : "0";
+    el.setAttribute("aria-expanded", String(open));
+    el.textContent = open ? c.trans || "" : "點一下看翻譯";
+  }
   function renderCard(c) {
     setWord($("#c-word"), c.word, serialMap("word").get(c.id));
     const ex = $("#c-example");
@@ -432,6 +450,8 @@ function init() {
       else ex.append(p.text);
     }
     ex.hidden = !c.example;
+    $("#c-trans").hidden = !c.trans;
+    setTrans(c, false);                    // 換卡就先蓋起來，點一下才顯示翻譯
     $("#c-note").textContent = c.note || "";
     $("#c-note").hidden = !c.note;
   }
@@ -442,7 +462,8 @@ function init() {
     const c = state.current;
     if (!c) return;
     clearAdv();
-    const list = parts || [c.word, c.example].filter(Boolean);
+    // 預設順序：單字 → 備註（設定可關）→ 例句
+    const list = parts || [c.word, settings.readNote ? c.note : "", c.example].filter(Boolean);
     let p;
     // 長時間連播：每 20 張先重置一次語音引擎，避免 Chrome 的合成器越用越卡
     if (synth && settings.autoNext && ++playCount % 20 === 0) {
@@ -543,6 +564,8 @@ function init() {
   $("#st-speak").onclick = () => playCard();
   $("#c-word").onclick = () => { const c = state.current; if (c) { $("#c-word").classList.toggle("sn-on"); playCard([c.word]); } };
   $("#c-example").onclick = () => { const c = state.current; if (c && c.example) playCard([c.example]); };
+  $("#c-note").onclick = () => { const c = state.current; if (c && c.note) playCard([c.note]); };
+  $("#c-trans").onclick = () => { const c = state.current; if (c && c.trans) setTrans(c, $("#c-trans").dataset.open !== "1"); };
   // 播放模式：關 → 連播 → 單字循環 → 關（點擊切換）
   const MODE_TXT = { off: "連播", next: "連播", loop: "循環" };
   const curMode = () => (!settings.autoNext ? "off" : settings.loop ? "loop" : "next");
@@ -694,6 +717,7 @@ function init() {
     $("#ed-word").value = c.word;
     $("#ed-example").value = c.example || "";
     $("#ed-note").value = c.note || "";
+    $("#ed-trans").value = c.trans || "";
     edEl.hidden = false;
     $("#ed-word").focus();
   };
@@ -709,7 +733,7 @@ function init() {
     const c = state.current;
     if (!c) return closeEdit(false);
     const clean = (v) => v.replace(/\s*\n\s*/g, " ").trim();
-    const patch = { word: clean($("#ed-word").value), example: clean($("#ed-example").value), note: clean($("#ed-note").value) };
+    const patch = { word: clean($("#ed-word").value), example: clean($("#ed-example").value), note: clean($("#ed-note").value), trans: clean($("#ed-trans").value) };
     if (!patch.word) { toast("單字不能空白"); return; }
     updateDoc(cardRef(c.id), patch).catch(syncError);
     Object.assign(c, patch);
@@ -766,6 +790,7 @@ function init() {
       case "ArrowUp": case "k": case "K": act("keep"); break;
       case "Delete": case "d": case "D": act("del"); break;
       case "ArrowDown": case "r": case "R": $("#st-speak").click(); break;
+      case "t": case "T": $("#c-trans").click(); break;
     }
   });
 
@@ -1235,6 +1260,7 @@ function init() {
       wordCell,
       mkCell("c-example", mkField("textarea", "example", c.example, "例句")),
       mkCell("c-note", mkField("input", "note", c.note, "備註")),
+      mkCell("c-trans", mkField("textarea", "trans", c.trans, "例句翻譯")),
       mkCell("c-status", mkBtn("st", c.status === "known" ? "已會" : "待學", "toggle")),
       mkCell("c-del", mkBtn("del", "刪除", "del")),
     );
@@ -1246,7 +1272,7 @@ function init() {
     const q = mg.q.trim().toLowerCase();
     const list = [...state.cards.values()]
       .filter((c) => (mg.f === "all" || (mg.f === "known") === (c.status === "known"))
-        && (!q || `${c.word}\n${c.example || ""}\n${c.note || ""}`.toLowerCase().includes(q)))
+        && (!q || `${c.word}\n${c.example || ""}\n${c.note || ""}\n${c.trans || ""}`.toLowerCase().includes(q)))
       .sort((a, b) => (a.createdAt || 0) - (b.createdAt || 0));
     $("#m-count").textContent = `${list.length} 張`;
     const frag = document.createDocumentFragment();
@@ -1340,7 +1366,7 @@ function init() {
     for (let i = 0; i < fresh.length; i += 400) {
       const batch = writeBatch(db);
       fresh.slice(i, i + 400).forEach((r, j) =>
-        batch.set(doc(col), { word: r.word, example: r.example, note: r.note, status: "new", createdAt: base + i + j }));
+        batch.set(doc(col), { word: r.word, example: r.example, note: r.note, trans: r.trans || "", status: "new", createdAt: base + i + j }));
       jobs.push(batch.commit());
     }
     // 不 await：離線時也立刻生效，連線後自動同步
@@ -1356,7 +1382,7 @@ function init() {
   /* ---------------- 總編輯（純文字編輯器） ---------------- */
   const bk = { snap: [], orig: "", scope: "all", kind: "word" };
   const bkVerb = () => bk.kind === "verb";
-  const bkFields = () => (bkVerb() ? VERB_FIELDS : ["word", "example", "note"]);
+  const bkFields = () => (bkVerb() ? VERB_FIELDS : ["word", "example", "note", "trans"]);
   const bkDirty = () => $("#bk-text").value !== bk.orig;
   const bkRender = (list) => {
     bk.snap = list;
@@ -1541,14 +1567,17 @@ function init() {
 
   /* ---------------- 設定 ---------------- */
   function fillVoices() {
-    const sv = $("#s-voice");
-    sv.textContent = "";
-    sv.add(new Option("自動（建議）", ""));
+    const fill = (sv, list, selected) => {
+      sv.textContent = "";
+      sv.add(new Option("自動（建議）", ""));
+      list.sort((a, b) => voiceScore(b) - voiceScore(a)).forEach((v) => sv.add(new Option(voiceLabel(v), v.name)));
+      sv.value = [...sv.options].some((o) => o.value === selected) ? selected : "";
+    };
     const prim = settings.lang.split("-")[0].toLowerCase();
-    voices.filter((v) => normLang(v.lang).startsWith(prim))
-      .sort((a, b) => voiceScore(b) - voiceScore(a))
-      .forEach((v) => sv.add(new Option(voiceLabel(v), v.name)));
-    sv.value = [...sv.options].some((o) => o.value === settings.voice) ? settings.voice : "";
+    fill($("#s-voice"), voices.filter((v) => normLang(v.lang).startsWith(prim)), settings.voice);
+    const zh = zhVoices();
+    fill($("#s-voice-zh"), zh, settings.voiceZh);
+    $("#s-zh-hint").hidden = zh.length > 0 || !voices.length;
   }
   function fillSettings() {
     const sl = $("#s-lang");
@@ -1558,12 +1587,15 @@ function init() {
     $("#s-rate").value = settings.rate;
     $("#s-rate-out").textContent = settings.rate.toFixed(2) + "×";
     $("#s-auto").checked = settings.autoplay;
+    $("#s-note").checked = settings.readNote;
     $("#s-shuffle").checked = settings.shuffle;
     $("#s-fx").checked = settings.fx;
     $("#s-account").textContent = auth.currentUser?.email || "";
   }
   $("#s-lang").onchange = (e) => { settings.lang = e.target.value; settings.voice = ""; saveSettings(); fillVoices(); };
   $("#s-voice").onchange = (e) => { settings.voice = e.target.value; saveSettings(); };
+  $("#s-voice-zh").onchange = (e) => { settings.voiceZh = e.target.value; saveSettings(); };
+  $("#s-note").onchange = (e) => { settings.readNote = e.target.checked; saveSettings(); };
   $("#s-rate").oninput = (e) => {
     settings.rate = parseFloat(e.target.value);
     $("#s-rate-out").textContent = settings.rate.toFixed(2) + "×";
@@ -1572,7 +1604,7 @@ function init() {
   $("#s-auto").onchange = (e) => { settings.autoplay = e.target.checked; saveSettings(); };
   $("#s-shuffle").onchange = (e) => { settings.shuffle = e.target.checked; saveSettings(); };
   $("#s-fx").onchange = (e) => { settings.fx = e.target.checked; saveSettings(); };
-  $("#s-test").onclick = () => speakParts([SAMPLES[settings.lang] || "Hello"]);
+  $("#s-test").onclick = () => speakParts([SAMPLES[settings.lang] || "Hello", ...(autoZh() ? ["這是中文語音測試。"] : [])]);
 }
 
 /* ------------------------------------------------------------------ */
