@@ -1,0 +1,39 @@
+{
+  "project_info": {
+    "project_number": "914721288327",
+    "project_id": "lumos-c6ccc",
+    "storage_bucket": "lumos-c6ccc.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:914721288327:android:5f3e5f550d4ba8b8858822",
+        "android_client_info": {
+          "package_name": "com.flashcards.app"
+        }
+      },
+      "oauth_client": [
+        {
+          "client_id": "914721288327-drnqa2rnu6e3j1dcpvv6j50p664o0rbs.apps.googleusercontent.com",
+          "client_type": 3
+        }
+      ],
+      "api_key": [
+        {
+          "current_key": "AIzaSyAFEKmobZc10q0ZAR_YhgWIOgXGEXiUeJs"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": [
+            {
+              "client_id": "914721288327-drnqa2rnu6e3j1dcpvv6j50p664o0rbs.apps.googleusercontent.com",
+              "client_type": 3
+            }
+          ]
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
