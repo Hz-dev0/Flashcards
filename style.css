@@ -107,7 +107,7 @@ hr { border: 0; border-top: 1px solid var(--line); margin: 24px 0; }
 .example { margin: 0; font-size: 1.25rem; line-height: 1.65; color: var(--fg2); cursor: pointer; text-wrap: pretty; }
 .example b { color: var(--fg); font-weight: 600; }
 .note { margin: 0; font-size: 1rem; color: var(--muted); }
-#c-note { cursor: pointer; }
+#c-note { cursor: pointer; margin-top: -0.7rem; font-size: 1.15rem; color: var(--fg2); }
 /* 例句翻譯：平常是一顆淡淡的提示，點一下變成翻譯文字，再點一下收起來 */
 .trans { align-self: center; margin: 0; max-width: 100%; border: 1px dashed var(--line); background: none; color: var(--muted); font: inherit; font-size: 0.92rem; line-height: 1.6; padding: 6px 14px; border-radius: 999px; cursor: pointer; text-wrap: pretty; -webkit-tap-highlight-color: transparent; }
 .trans[data-open="1"] { border-color: transparent; color: var(--fg2); font-size: 1.1rem; border-radius: 12px; }

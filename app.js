@@ -98,7 +98,7 @@ document.addEventListener("visibilitychange", updateLock);
 /* ------------------------------------------------------------------ */
 /* 本機設定（語音每台裝置不同，所以不放雲端）                              */
 /* ------------------------------------------------------------------ */
-const DEFAULTS = { lang: "en-US", voice: "", voiceZh: "", readNote: true, rate: 0.95, autoplay: true, shuffle: true, autoNext: false, loop: false, fx: true, vmode: "quiz", vauto: false };
+const DEFAULTS = { lang: "en-US", voice: "", voiceZh: "", readZh: true, rate: 0.95, autoplay: true, shuffle: true, autoNext: false, loop: false, fx: true, vmode: "quiz", vauto: false };
 function readSettings() {
   try { return { ...DEFAULTS, ...JSON.parse(localStorage.getItem("wc.settings") || "{}") }; }
   catch { return { ...DEFAULTS }; }
@@ -392,8 +392,20 @@ function init() {
   const openManage = () => { stopSpeech(); mg.q = ""; $("#m-q").value = ""; mg.limit = PAGE; show("manage"); renderManage(); };
   $("#st-manage").onclick = openManage;
   $("#h-empty-import").onclick = () => { show("import"); updatePreview(); };
-  $("#h-settings").onclick = () => { fillSettings(); show("settings"); };
-  $$("[data-back]").forEach((b) => b.addEventListener("click", () => { stopSpeech(); clearTimeout(vq.timer); show("home"); renderHome(); }));
+  let settingsFrom = "home";
+  $("#h-settings").onclick = () => { settingsFrom = "home"; fillSettings(); show("settings"); };
+  // 學習中開設定：改完按返回回到同一張卡（不是跳回首頁）
+  $("#st-settings").onclick = () => { stopSpeech(); settingsFrom = "study"; fillSettings(); show("settings"); };
+  $$("[data-back]").forEach((b) => b.addEventListener("click", () => {
+    if (current === "settings" && settingsFrom === "study" && state.current) {
+      settingsFrom = "home";
+      show("study");
+      renderCard(state.current);
+      if (settings.autoNext) playCard();
+      return;
+    }
+    stopSpeech(); clearTimeout(vq.timer); show("home"); renderHome();
+  }));
 
   /* ---------------- 學習 / 複習 ---------------- */
   const inMode = (c) => (state.mode === "known" ? c.status === "known" : c.status !== "known");
@@ -451,7 +463,7 @@ function init() {
     }
     ex.hidden = !c.example;
     $("#c-trans").hidden = !c.trans;
-    setTrans(c, false);                    // 換卡就先蓋起來，點一下才顯示翻譯
+    setTrans(c, !!settings.readZh);        // 有唸中文就直接顯示；沒唸的話先蓋起來，點一下才顯示
     $("#c-note").textContent = c.note || "";
     $("#c-note").hidden = !c.note;
   }
@@ -462,8 +474,8 @@ function init() {
     const c = state.current;
     if (!c) return;
     clearAdv();
-    // 預設順序：單字 → 備註（設定可關）→ 例句
-    const list = parts || [c.word, settings.readNote ? c.note : "", c.example].filter(Boolean);
+    // 勾「朗讀時唸出中文」：單字 → 備註 → 英文例句 → 中文例句；沒勾：單字 → 英文例句
+    const list = parts || (settings.readZh ? [c.word, c.note, c.example, c.trans] : [c.word, c.example]).filter(Boolean);
     let p;
     // 長時間連播：每 20 張先重置一次語音引擎，避免 Chrome 的合成器越用越卡
     if (synth && settings.autoNext && ++playCount % 20 === 0) {
@@ -565,7 +577,12 @@ function init() {
   $("#c-word").onclick = () => { const c = state.current; if (c) { $("#c-word").classList.toggle("sn-on"); playCard([c.word]); } };
   $("#c-example").onclick = () => { const c = state.current; if (c && c.example) playCard([c.example]); };
   $("#c-note").onclick = () => { const c = state.current; if (c && c.note) playCard([c.note]); };
-  $("#c-trans").onclick = () => { const c = state.current; if (c && c.trans) setTrans(c, $("#c-trans").dataset.open !== "1"); };
+  $("#c-trans").onclick = () => {
+    const c = state.current;
+    if (!c || !c.trans) return;
+    if (settings.readZh) playCard([c.trans]);     // 一直顯示的狀態：點一下是單獨朗讀
+    else setTrans(c, $("#c-trans").dataset.open !== "1");
+  };
   // 播放模式：關 → 連播 → 單字循環 → 關（點擊切換）
   const MODE_TXT = { off: "連播", next: "連播", loop: "循環" };
   const curMode = () => (!settings.autoNext ? "off" : settings.loop ? "loop" : "next");
@@ -1587,7 +1604,7 @@ function init() {
     $("#s-rate").value = settings.rate;
     $("#s-rate-out").textContent = settings.rate.toFixed(2) + "×";
     $("#s-auto").checked = settings.autoplay;
-    $("#s-note").checked = settings.readNote;
+    $("#s-readzh").checked = settings.readZh;
     $("#s-shuffle").checked = settings.shuffle;
     $("#s-fx").checked = settings.fx;
     $("#s-account").textContent = auth.currentUser?.email || "";
@@ -1595,7 +1612,7 @@ function init() {
   $("#s-lang").onchange = (e) => { settings.lang = e.target.value; settings.voice = ""; saveSettings(); fillVoices(); };
   $("#s-voice").onchange = (e) => { settings.voice = e.target.value; saveSettings(); };
   $("#s-voice-zh").onchange = (e) => { settings.voiceZh = e.target.value; saveSettings(); };
-  $("#s-note").onchange = (e) => { settings.readNote = e.target.checked; saveSettings(); };
+  $("#s-readzh").onchange = (e) => { settings.readZh = e.target.checked; saveSettings(); };
   $("#s-rate").oninput = (e) => {
     settings.rate = parseFloat(e.target.value);
     $("#s-rate-out").textContent = settings.rate.toFixed(2) + "×";

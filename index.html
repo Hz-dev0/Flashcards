@@ -14,7 +14,7 @@
   <link rel="manifest" href="manifest.json">
   <link rel="icon" type="image/png" href="icons/icon-192.png">
   <link rel="apple-touch-icon" href="icons/icon-192.png">
-  <link rel="stylesheet" href="style.css?v=24">
+  <link rel="stylesheet" href="style.css?v=25">
 </head>
 <body>
   <!-- icon sprite -->
@@ -86,6 +86,7 @@
             <button type="button" class="mi" role="menuitem" id="st-gear"><svg class="ic"><use href="#i-gear"/></svg>練習範圍<span class="mi-tag">已啟用</span></button>
             <button type="button" class="mi" role="menuitem" id="a-edit"><svg class="ic"><use href="#i-edit"/></svg>編輯這張卡</button>
             <button type="button" class="mi" role="menuitem" id="st-manage"><svg class="ic"><use href="#i-list"/></svg>管理字卡</button>
+            <button type="button" class="mi" role="menuitem" id="st-settings"><svg class="ic"><use href="#i-sliders"/></svg>設定</button>
             <div class="mi-sep" aria-hidden="true"></div>
             <button type="button" class="mi danger" role="menuitem" id="a-del"><svg class="ic"><use href="#i-trash"/></svg>刪除這張卡</button>
           </div>
@@ -94,9 +95,9 @@
     </header>
     <div id="stage" class="stage">
       <h1 id="c-word" class="word"></h1>
+      <p id="c-note" class="note"></p>
       <p id="c-example" class="example"></p>
       <button type="button" id="c-trans" class="trans" aria-expanded="false" hidden></button>
-      <p id="c-note" class="note"></p>
     </div>
     <footer class="actions">
       <button class="btn primary keep" id="a-keep">會了</button>
@@ -252,13 +253,14 @@ pragmatic  We need a pragmatic solution.
     </header>
     <label class="field"><span>發音語言</span><select id="s-lang"></select></label>
     <label class="field"><span>語音</span><select id="s-voice"></select></label>
-    <label class="field"><span>中文語音（唸備註用）</span><select id="s-voice-zh"></select></label>
+    <label class="field"><span>中文語音（唸備註、中文例句用）</span><select id="s-voice-zh"></select></label>
     <p id="s-zh-hint" class="muted small" hidden>這台裝置找不到中文語音，備註可能唸不出來或用英文腔唸。Android 請安裝／啟用 Google 語音的中文；Windows 請在「設定 → 時間與語言 → 語言與區域」加入繁體中文並安裝語音。</p>
     <label class="field"><span>語速 <output id="s-rate-out"></output></span>
       <input id="s-rate" type="range" min="0.5" max="1.3" step="0.05">
     </label>
     <label class="check"><input id="s-auto" type="checkbox"> 換到新卡時自動朗讀</label>
-    <label class="check"><input id="s-note" type="checkbox"> 朗讀時唸備註（單字 → 備註 → 例句）</label>
+    <label class="check"><input id="s-readzh" type="checkbox"> 朗讀時唸出中文</label>
+    <p class="muted small">勾選：單字 → 備註 → 英文例句 → 中文例句，中文例句會直接顯示。不勾：單字 → 英文例句，中文例句點一下才顯示。</p>
     <label class="check"><input id="s-shuffle" type="checkbox"> 隨機順序</label>
     <label class="check"><input id="s-fx" type="checkbox"> 動詞三態：答題音效與震動</label>
     <button class="btn" id="s-test">試聽</button>
@@ -338,6 +340,6 @@ pragmatic  We need a pragmatic solution.
   </div>
 
   <script src="pwa.js" defer></script>
-  <script type="module" src="app.js?v=24"></script>
+  <script type="module" src="app.js?v=25"></script>
 </body>
 </html>
