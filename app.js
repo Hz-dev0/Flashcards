@@ -889,10 +889,11 @@ function init() {
     if (e.pointerType === "mouse") return;      // 電腦用右鍵
     lpFired = false;
     lpCancel();
-    lpTimer = setTimeout(() => { lpFired = true; openRate(); }, 500);
+    lpTimer = setTimeout(() => { lpFired = true; getSelection()?.removeAllRanges(); openRate(); }, 500);
   });
   ["pointerup", "pointerleave", "pointercancel"].forEach((t) => spk.addEventListener(t, lpCancel));
-  spk.addEventListener("contextmenu", (e) => { e.preventDefault(); lpCancel(); lpFired = true; openRate(); });
+  spk.addEventListener("contextmenu", (e) => { e.preventDefault(); lpCancel(); lpFired = true; getSelection()?.removeAllRanges(); openRate(); });
+  spk.addEventListener("selectstart", (e) => e.preventDefault());
   // 長按後放開不要同時觸發重播
   spk.addEventListener("click", (e) => {
     if (lpFired) { e.stopImmediatePropagation(); e.preventDefault(); lpFired = false; }

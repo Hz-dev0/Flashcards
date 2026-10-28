@@ -25,6 +25,9 @@
 * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
 [hidden] { display: none !important; }
 html, body { margin: 0; min-height: 100%; }
+/* 禁止長按選取文字（避免長按喇叭/模式鈕時框選到文字），輸入框仍可選取 */
+body { -webkit-user-select: none; user-select: none; -webkit-touch-callout: none; }
+input, textarea, [contenteditable] { -webkit-user-select: text; user-select: text; -webkit-touch-callout: default; }
 body {
   background: var(--bg);
   color: var(--fg);
