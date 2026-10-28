@@ -100,7 +100,7 @@ document.addEventListener("visibilitychange", updateLock);
 /* ------------------------------------------------------------------ */
 /* 本機設定（語音每台裝置不同，所以不放雲端）                              */
 /* ------------------------------------------------------------------ */
-const DEFAULTS = { lang: "en-US", readZh: true, rate: 0.95, autoplay: true, shuffle: true, autoNext: false, loop: false, fx: true, vmode: "quiz", vauto: false };
+const DEFAULTS = { lang: "en-US", readZh: true, sleepMin: 0, rate: 0.95, autoplay: true, shuffle: true, autoNext: false, loop: false, fx: true, vmode: "quiz", vauto: false };
 function readSettings() {
   try { return { ...DEFAULTS, ...JSON.parse(localStorage.getItem("wc.settings") || "{}") }; }
   catch { return { ...DEFAULTS }; }
@@ -181,6 +181,7 @@ function utter(text, zh = false) {
 const NATIVE = !!(window.Capacitor && window.Capacitor.isNativePlatform && window.Capacitor.isNativePlatform());
 const NSpeech = NATIVE ? window.Capacitor.Plugins.Speech : null;
 let nativeActive = false;     // 原生連播服務是否在跑（網頁端的記錄）
+let sleepAt = 0;              // 睡眠模式的停止時間（epoch 毫秒），0 = 沒啟用
 let nativeRemove = null;      // 剛標成「會了」／刪除的卡，下次重啟連播時通知服務從輪次拿掉
 
 function speakParts(parts) {
@@ -493,10 +494,24 @@ function init() {
 
   let playCount = 0;
   // 念出來；連播開著時，念完停一下就自動跳下一張
+  // 睡眠模式：連播開始時起算，時間到唸完當下這張就停止
+  function armSleep() {
+    if (!settings.autoNext) return;
+    if (!(settings.sleepMin > 0)) { sleepAt = 0; return; }
+    if (!sleepAt) { sleepAt = Date.now() + settings.sleepMin * 60000; toast(`睡眠模式：${settings.sleepMin} 分鐘後停止`); }
+  }
+  function sleepStop() {
+    sleepAt = 0;
+    settings.autoNext = false; saveSettings(); renderMode(); updateLock();
+    stopSpeech();
+    toast("睡眠模式：已停止播放");
+  }
+
   function playCard(parts) {
     const c = state.current;
     if (!c) return;
     clearAdv();
+    armSleep();
     if (NATIVE && settings.autoNext && !parts) { startNativeSession(c); return; }
     // 勾「朗讀時唸出中文」：單字 → 備註 → 英文例句 → 中文例句；沒勾：單字 → 英文例句
     const list = parts || (settings.readZh ? [c.word, c.note, c.example, c.trans] : [c.word, c.example]).filter(Boolean);
@@ -511,6 +526,7 @@ function init() {
       if (!ok || !settings.autoNext) return;
       advTimer = setTimeout(() => {
         if (!settings.autoNext || editing || current !== "study" || state.current !== c) return;
+        if (sleepAt && Date.now() >= sleepAt) { sleepStop(); return; }
         if (settings.loop) playCard(list);   // 單字循環：同一張重複念
         else act("next");                    // 連播：跳下一張
       }, settings.loop ? 900 : 1200);
@@ -623,7 +639,10 @@ function init() {
   // 網頁這邊只負責同步畫面：服務換卡時通知網頁，切回前景時再對一次進度。
   function nativeTurnOff() {
     nativeActive = false;
+    const slept = sleepAt && Date.now() >= sleepAt - 3000;
+    sleepAt = 0;
     if (settings.autoNext) { settings.autoNext = false; saveSettings(); renderMode(); updateLock(); }
+    if (slept) toast("睡眠模式：已停止播放");
   }
   function onNativeCard(e) {
     if (!settings.autoNext || current !== "study" || editing || !e) return;
@@ -656,7 +675,7 @@ function init() {
     if (!ids.includes(c.id)) ids.unshift(c.id);
     const payload = {
       ids, rate: settings.rate, lang: settings.lang, autoZh: autoZh(),
-      readZh: !!settings.readZh, loop: !!settings.loop, shuffle: !!settings.shuffle, remove: nativeRemove,
+      readZh: !!settings.readZh, loop: !!settings.loop, shuffle: !!settings.shuffle, remove: nativeRemove, sleepAt,
     };
     nativeRemove = null;
     const pool = () => inRange("word", [...state.cards.values()]).filter(inMode)
@@ -680,7 +699,7 @@ function init() {
     saveSettings();
     renderMode();
     updateLock();
-    if (settings.autoNext) playCard(); else { clearAdv(); if (NATIVE) stopSpeech(); }
+    if (settings.autoNext) playCard(); else { sleepAt = 0; clearAdv(); if (NATIVE) stopSpeech(); }
   };
 
   /* ---------------- 練習範圍（依序號；設定存雲端） ---------------- */
@@ -877,6 +896,55 @@ function init() {
   // 長按後放開不要同時觸發重播
   spk.addEventListener("click", (e) => {
     if (lpFired) { e.stopImmediatePropagation(); e.preventDefault(); lpFired = false; }
+  }, true);
+
+  /* ---------------- 長按「連播」：快速設定（睡眠模式／唸出中文／隨機順序） ---------------- */
+  const qsEl = $("#qs");
+  function renderQs() {
+    $$("#qs-chips button").forEach((b) => b.setAttribute("aria-pressed", String(+b.dataset.m === (settings.sleepMin || 0))));
+    const remain = sleepAt ? Math.max(1, Math.ceil((sleepAt - Date.now()) / 60000)) : 0;
+    $("#qs-sleep-out").textContent = settings.sleepMin ? (remain ? `剩約 ${remain} 分鐘` : `${settings.sleepMin} 分鐘`) : "關閉";
+    $("#qs-readzh").checked = !!settings.readZh;
+    $("#qs-shuffle").checked = !!settings.shuffle;
+  }
+  function openQs() {
+    if (current !== "study" || editing || !qsEl.hidden) return;
+    editing = true;            // 調整期間暫停連播／循環
+    stopSpeech();
+    renderQs();
+    qsEl.hidden = false;
+  }
+  function closeQs() {
+    if (qsEl.hidden) return;
+    qsEl.hidden = true;
+    editing = false;
+    const c = state.current;
+    if (c) setTrans(c, !!settings.readZh);     // 「唸出中文」改了，中文例句的顯示方式跟著變
+    if (settings.autoNext) playCard();         // 睡眠模式從現在重新起算
+  }
+  $$("#qs-chips button").forEach((b) => b.onclick = () => {
+    settings.sleepMin = +b.dataset.m; sleepAt = 0; saveSettings(); renderQs();
+  });
+  $("#qs-readzh").onchange = (e) => { settings.readZh = e.target.checked; saveSettings(); };
+  $("#qs-shuffle").onchange = (e) => { settings.shuffle = e.target.checked; saveSettings(); };
+  $("#qs-ok").onclick = closeQs;
+  qsEl.addEventListener("pointerdown", (e) => { if (e.target === qsEl) closeQs(); });
+  document.addEventListener("keydown", (e) => { if (!qsEl.hidden && e.key === "Escape") closeQs(); });
+
+  const modeBtn = $("#st-mode");
+  let mTimer = 0, mFired = false;
+  const mCancel = () => { clearTimeout(mTimer); mTimer = 0; };
+  modeBtn.addEventListener("pointerdown", (e) => {
+    if (e.pointerType === "mouse") return;      // 電腦用右鍵
+    mFired = false;
+    mCancel();
+    mTimer = setTimeout(() => { mFired = true; openQs(); }, 500);
+  });
+  ["pointerup", "pointerleave", "pointercancel"].forEach((t) => modeBtn.addEventListener(t, mCancel));
+  modeBtn.addEventListener("contextmenu", (e) => { e.preventDefault(); mCancel(); mFired = true; openQs(); });
+  // 長按後放開不要同時切換播放模式
+  modeBtn.addEventListener("click", (e) => {
+    if (mFired) { e.stopImmediatePropagation(); e.preventDefault(); mFired = false; }
   }, true);
 
   document.addEventListener("keydown", (e) => {
@@ -1671,12 +1739,14 @@ function init() {
     $("#s-rate-out").textContent = settings.rate.toFixed(2) + "×";
     $("#s-auto").checked = settings.autoplay;
     $("#s-readzh").checked = settings.readZh;
+    $("#s-sleep").value = String(settings.sleepMin || 0);
     $("#s-shuffle").checked = settings.shuffle;
     $("#s-fx").checked = settings.fx;
     $("#s-account").textContent = auth.currentUser?.email || "";
   }
   $("#s-lang").onchange = (e) => { settings.lang = e.target.value; saveSettings(); };
   $("#s-readzh").onchange = (e) => { settings.readZh = e.target.checked; saveSettings(); };
+  $("#s-sleep").onchange = (e) => { settings.sleepMin = +e.target.value || 0; sleepAt = 0; saveSettings(); };   // 改設定後，下次連播起重新計時
   $("#s-rate").oninput = (e) => {
     settings.rate = parseFloat(e.target.value);
     $("#s-rate-out").textContent = settings.rate.toFixed(2) + "×";
