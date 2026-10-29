@@ -51,11 +51,28 @@ export function cyrb53(str, seed = 0) {
 /** 內建字庫的卡片編號：由「單字 + 例句」決定，跟行號、順序無關，所以在 words.txt 中間插行不會讓進度錯位 */
 export const baseCardId = (word, example) => "b" + cyrb53(cardKey(word, example)).toString(36);
 
-/** 讀 words.txt：去掉文字編輯器匯出時行首的 [編號]，其餘格式同批量匯入 */
+/**
+ * 讀字庫文字檔（words.txt 或 App 內的批量匯入共用）：
+ * - 行首的 [編號]（從「文字編輯」複製出來的）自動去掉，標題行前面有也可以
+ * - 「# ===== 1 招聘與求職 =====」或「## 招聘與求職」是單元標題；其後的每張卡 row.unit = 標題
+ */
 export function parseWordsFile(text) {
   const t = String(text || "").replace(/^\uFEFF/, "");
-  if (/^\s*<(!doctype|html)/i.test(t)) return { rows: [], skipped: [] };   // 伺服器對不存在的檔案回傳了網頁
-  return parseImport(t.replace(/^[ \t]*\[\d+\][ \t]*/gm, ""));
+  if (/^\s*<(!doctype|html)/i.test(t)) return { rows: [], skipped: [], heads: [] };   // 伺服器對不存在的檔案回傳了網頁
+  const lines = t.replace(/\r/g, "").split("\n").map((ln) => ln.replace(/^[ \t]*\[\d+\][ \t]*/, ""));
+  const heads = [];
+  lines.forEach((ln, i) => {
+    const m = /^\s*#+\s*=+\s*(?:\d+[\s.、．]+)?([^=\s].*?)\s*=+\s*$/.exec(ln) || /^\s*##\s+(.+?)\s*$/.exec(ln);
+    if (m) heads.push({ line: i + 1, title: m[1].trim() });
+  });
+  const res = parseImport(lines.join("\n"));
+  let hi = -1;
+  for (const r of res.rows) {
+    while (hi + 1 < heads.length && heads[hi + 1].line < r.line) hi++;
+    r.unit = hi >= 0 ? heads[hi].title : "";
+  }
+  res.heads = heads.map((h) => h.title);
+  return res;
 }
 
 export function shuffle(arr) {

@@ -22,14 +22,16 @@ let current = null;
 
 // 手機系統返回鍵：在字卡／管理等子頁按返回，回到上一層（首頁）而不是退出 APP。
 // 作法：離開首頁層級時墊一筆歷史紀錄，系統返回只會消耗這一筆，並改為觸發頁面內的返回鈕。
+const APP_VER = "38";      // 設定頁會顯示，用來確認手機上裝的是不是最新版
 const TOP_VIEWS = ["setup", "auth", "home"];
 try { if (history.state?.sub) history.replaceState(null, ""); } catch {}
 // 原生 App：由 Capacitor 的 backButton 事件交給 systemBack() 決定（關選單／關浮層／回上一頁，只有在首頁才退出）
+let qsDismiss = false;          // 返回鍵／點背景關掉快速設定 = 不套用睡眠時間的變更
 function systemBack() {
   if (!current || TOP_VIEWS.includes(current)) return false;
   if ([...document.querySelectorAll(".menu-pop")].some((p) => !p.hidden)) { closeMenus(); return true; }
   const open = ["#rg-cancel", "#cf-no", "#ed-cancel", "#rt-ok", "#qs-ok"].find((b) => !document.querySelector(b)?.closest(".sheet")?.hidden);
-  if (open) { document.querySelector(open).click(); return true; }
+  if (open) { qsDismiss = open === "#qs-ok"; document.querySelector(open).click(); return true; }
   const back = $(`#v-${current}`)?.querySelector("[data-back], #vm-back, #bk-back");
   if (back) back.click(); else show("home");
   return true;
@@ -37,7 +39,7 @@ function systemBack() {
 window.addEventListener("popstate", () => {
   if (NATIVE || !current || TOP_VIEWS.includes(current)) return;
   const open = ["#rg-cancel", "#cf-no", "#ed-cancel", "#rt-ok", "#qs-ok"].find((b) => !document.querySelector(b)?.closest(".sheet")?.hidden);
-  if (open) { try { history.pushState({ sub: true }, ""); } catch {} document.querySelector(open).click(); return; }
+  if (open) { try { history.pushState({ sub: true }, ""); } catch {} qsDismiss = open === "#qs-ok"; document.querySelector(open).click(); return; }
   const back = $(`#v-${current}`)?.querySelector("[data-back], #vm-back, #bk-back");
   if (back) back.click(); else show("home");
 });
@@ -312,61 +314,64 @@ function init() {
     try {
       const r = await fetch("words.txt");
       if (!r.ok) return;
-      const text = await r.text();
-      const { rows } = parseWordsFile(text);
-      // 分類標題：「# ===== 1 招聘與求職 =====」或「## 招聘與求職」；標題之後的字卡都屬於它
-      const heads = [];
-      text.replace(/\r/g, "").split("\n").forEach((ln, i) => {
-        const m = /^\s*#+\s*=+\s*(?:\d+[\s.、．]+)?([^=\s].*?)\s*=+\s*$/.exec(ln) || /^\s*##\s+(.+?)\s*$/.exec(ln);
-        if (m) heads.push({ line: i + 1, title: m[1].trim() });
-      });
-      const base = new Map(), keys = new Map();
-      let hi = -1;
+      const { rows } = parseWordsFile(await r.text());
+      const base = new Map(), keys = new Map(), cats = [];
       for (const r of rows) {
-        while (hi + 1 < heads.length && heads[hi + 1].line < r.line) hi++;
         const key = cardKey(r.word, r.example);
         if (keys.has(key)) continue;                       // 同樣的單字＋例句只留第一張
         let id = baseCardId(r.word, r.example);
         while (base.has(id)) id += "x";                    // 雜湊撞號的保險
+        let hi = -1;                                       // 單元標題在 cats 裡的位置（-1 = 標題之前的字卡）
+        if (r.unit) { hi = cats.indexOf(r.unit); if (hi < 0) { cats.push(r.unit); hi = cats.length - 1; } }
         const c = { id, base: true, word: r.word, example: r.example, note: r.note, trans: r.trans || "", createdAt: base.size + 1, cat: hi };
         base.set(id, c); keys.set(key, c);
       }
-      state.base = base; state.baseKeys = keys; state.cats = heads.map((h) => h.title);
+      state.base = base; state.baseKeys = keys; state.cats = cats;
       if (state.uid) { mergeCards(); renderHome(); }
     } catch (e) { console.warn("讀不到 words.txt", e); }
   }
   // state.cards = 內建字庫（套上進度）＋雲端自己的字卡。雲端已有同一張（單字＋例句相同）時以雲端為準，避免重複。
   function mergeCards() {
     const out = new Map();
-    const cloudKeys = new Set();
-    for (const c of state.cloud.values()) cloudKeys.add(cardKey(c.word, c.example));
+    const cloudByKey = new Map(), used = new Set();
+    for (const c of state.cloud.values()) { const k = cardKey(c.word, c.example); if (!cloudByKey.has(k)) cloudByKey.set(k, c); }
     const { known, hidden, edits } = state.prog;
     for (const b of state.base.values()) {
-      if (hidden[b.id] || cloudKeys.has(cardKey(b.word, b.example))) continue;
+      if (hidden[b.id]) continue;
+      // 雲端已經有同一張（還沒整理的舊字卡）：進度以雲端為準，但仍然算在這個單元裡、用字庫的順序
+      const cc = cloudByKey.get(cardKey(b.word, b.example));
+      if (cc) { out.set(cc.id, { ...cc, createdAt: b.createdAt, cat: b.cat, lib: true }); used.add(cc.id); continue; }
       const k = known[b.id];
       const c = { ...b, ...(edits[b.id] || {}), status: k ? "known" : "new" };
       if (k) c.knownAt = k;
       out.set(b.id, c);
     }
-    for (const [id, c] of state.cloud) out.set(id, c);
+    for (const [id, c] of state.cloud) if (!used.has(id)) out.set(id, c);
     state.cards = out;
     applyUnits();
   }
-  // 單元：words.txt 裡的「# ===== 1 招聘與求職 =====」就是一個單元（沒有分類標題就每 100 張一組，或在設定指定張數）。
-  // 前一個單元全部「會了」才解鎖下一個。解鎖狀態不另外存，直接由進度（已會的編號）算出來，所以多台裝置一定一致。
-  // 自己新增的卡不受限制。
+  // 單元：words.txt（或 App 內批量匯入）裡的「# ===== 1 招聘與求職 =====」就是一個單元；
+  // 沒有任何標題時，內建字庫每 100 張一組（或在設定指定張數）。前一個單元全部「會了」才解鎖下一個。
+  // 解鎖狀態不另外存，直接由進度（已會的卡）算出來，所以多台裝置一定一致。沒有單元標題的自訂字卡不受限制。
+  const unitTitle = (c) => (c.base || c.lib ? (c.cat >= 0 ? state.cats[c.cat] : c.ut) : c.ut) || "";
   function applyUnits() {
-    const mode = state.unit, list = [...state.cards.values()].filter((c) => c.base), units = [];
-    const byCat = mode === -1 && state.cats.length > 0;
+    const mode = state.unit, units = [];
+    const list = [...state.cards.values()].filter((c) => c.base || c.lib || c.ut).sort((a, b) => (a.createdAt || 0) - (b.createdAt || 0));
+    const byCat = mode === -1 && list.some((c) => unitTitle(c));
     const size = mode > 0 ? mode : mode === -1 && !byCat ? 100 : 0;
+    state.cards.forEach((c) => { c.unit = 0; c.locked = false; });
     if (mode !== 0 && list.length) {
       const groups = [];
-      list.forEach((c, i) => {
-        const g = groups[groups.length - 1];
-        const same = byCat ? g && g.cat === c.cat : g && g.cards.length < size;
-        if (same) g.cards.push(c);
-        else groups.push({ cat: c.cat, cards: [c], title: byCat ? (c.cat >= 0 ? state.cats[c.cat] : "未分類") : `第 ${groups.length + 1} 組` });
-      });
+      if (byCat) {
+        const idx = new Map();                                   // 標題 → 組（依第一次出現的順序）
+        for (const c of list) {
+          const t = unitTitle(c) || "未分類";
+          if (!idx.has(t)) { idx.set(t, groups.length); groups.push({ title: t, cards: [] }); }
+          groups[idx.get(t)].cards.push(c);
+        }
+      } else {
+        for (let i = 0; i < list.length; i += size) groups.push({ title: `第 ${groups.length + 1} 組`, cards: list.slice(i, i + size) });
+      }
       let open = true;
       for (const g of groups) {
         const left = g.cards.filter((c) => c.status !== "known").length;
@@ -375,7 +380,7 @@ function init() {
         units.push({ n, title: g.title, total: g.cards.length, left, locked: !open });
         if (left > 0) open = false;
       }
-    } else list.forEach((c) => { c.unit = 0; c.locked = false; });
+    }
     state.units = units;
     const unlocked = units.filter((u) => !u.locked).length;
     if (state.unlockedN && unlocked > state.unlockedN) toast(`🎉 解鎖單元 ${unlocked}：${units[unlocked - 1].title}`);
@@ -471,6 +476,7 @@ function init() {
         if (data.type === "verbmeta") { state.gone = new Set(data.gone || []); return; }   // 記錄「刪掉的內建動詞」
         if (data.type === "prefs") {                                                       // 練習範圍設定（雲端同步）
           state.prefs = { word: normPref(data.word), verb: normPref(data.verb) };
+          state.prefs.word.on = false;                       // 複習範圍只在一次複習中有效，重開 App 不沿用
           if (Number.isFinite(data.unit)) state.unit = data.unit;                          // 單元大小（0＝不分單元），多裝置共用
           renderGears();
           return;
@@ -507,7 +513,7 @@ function init() {
     let n = 0, k = 0;
     const all = [...state.cards.values()];
     for (const c of all) if (c.status !== "known" && !c.locked) n++;
-    for (const c of inRange("word", all)) if (c.status === "known") k++;     // 複習數字跟複習範圍一致
+    for (const c of all) if (c.status === "known") k++;
     return { n, k };
   }
   const rangeText = (kind, total) => {
@@ -587,7 +593,10 @@ function init() {
     if (u.locked) { toast(`先把單元 ${u.n - 1} 全部標成「會了」才能解鎖`); return; }
     if (e.target.closest("[data-rv]") || !u.left) startStudy("known", u.n, true); else startStudy("new", u.n, true);
   });
-  $("#h-review").onclick = () => startStudy("known");
+  $("#h-review").onclick = () => {
+    if (state.prefs.word.on) savePref("word", { ...state.prefs.word, on: false });   // 每次從首頁進複習都先看全部；要縮小範圍再長按連播設定
+    startStudy("known");
+  };
   $("#h-verb").onclick = () => { show("verb"); vqRefresh(); };
   const openManage = () => { stopSpeech(); mg.q = ""; $("#m-q").value = ""; mg.limit = PAGE; show("manage"); renderManage(); };
   $("#st-manage").onclick = openManage;
@@ -801,7 +810,7 @@ function init() {
   };
   $("#dn-range").onclick = () => openQs();
 
-  const toData = (c) => { const { id, ...data } = c; return data; };
+  const toData = (c) => { const { id, lib, cat, base, unit, locked, ...data } = c; return data; };
 
   function removeCard(c) {
     const data = toData(c);
@@ -1141,10 +1150,18 @@ function init() {
 
   /* ---------------- 長按「連播」：快速設定（睡眠模式／唸出中文／隨機順序） ---------------- */
   const qsEl = $("#qs");
-  function renderQs() {
-    $$("#qs-chips button").forEach((b) => b.setAttribute("aria-pressed", String(+b.dataset.m === (settings.sleepMin || 0))));
+  // 睡眠時間：在設定裡只是「選」，按「完成」才套用（從那一刻重新倒數）；點背景／返回關掉則不變，原本的倒數繼續
+  let qsSleep = 0;
+  function renderQsSleep() {
+    const cur = settings.sleepMin || 0;
+    $$("#qs-chips button").forEach((b) => b.setAttribute("aria-pressed", String(+b.dataset.m === qsSleep)));
     const remain = sleepAt ? Math.max(1, Math.ceil((sleepAt - Date.now()) / 60000)) : 0;
-    $("#qs-sleep-out").textContent = settings.sleepMin ? (remain ? (sleepAt && Date.now() >= sleepAt ? "唸完這張就停止" : `剩約 ${remain} 分鐘`) : `${settings.sleepMin} 分鐘`) : "關閉";
+    $("#qs-sleep-out").textContent = qsSleep !== cur
+      ? (qsSleep ? `${qsSleep} 分鐘・按完成後從現在起算` : "關閉・按完成後生效")
+      : cur ? (remain ? (sleepAt && Date.now() >= sleepAt ? "唸完這張就停止" : `剩約 ${remain} 分鐘`) : `${cur} 分鐘`) : "關閉";
+  }
+  function renderQs() {
+    renderQsSleep();
     $("#qs-readzh").checked = !!settings.readZh;
     $("#qs-shuffle").checked = !!settings.shuffle;
     const p = state.prefs.word;
@@ -1169,7 +1186,7 @@ function init() {
   function renderQsUnits() {
     const box = $("#qs-units"), sn = serialMap("word"), sp = new Map();
     for (const c of state.cards.values()) {
-      if (!c.base || !c.unit) continue;
+      if (!c.unit) continue;
       const n = sn.get(c.id), s = sp.get(c.unit) || { lo: Infinity, hi: 0 };
       s.lo = Math.min(s.lo, n); s.hi = Math.max(s.hi, n); sp.set(c.unit, s);
     }
@@ -1200,15 +1217,17 @@ function init() {
   function openQs() {
     if (editing || !qsEl.hidden || !["study", "home", "done"].includes(current)) return;
     if (current === "study") { editing = true; stopSpeech(); }   // 調整期間暫停連播／循環
+    qsSleep = settings.sleepMin || 0;
     renderQs();
     qsEl.hidden = false;
   }
-  function closeQs() {
+  function closeQs(apply = false) {
     if (qsEl.hidden) return;
     const p = qsRead();
     if (p.on && p.from > state.cards.size) { toast(`起始序號超過總數（共 ${state.cards.size}）`); return; }
     const changed = JSON.stringify(p) !== JSON.stringify(state.prefs.word);
     qsEl.hidden = true;
+    if (apply && qsSleep !== (settings.sleepMin || 0)) { settings.sleepMin = qsSleep; saveSettings(); applySleep(); }   // 改了分鐘數：馬上從現在重新倒數
     if (changed) savePref("word", p);
     if (current !== "study") { renderHome(); if (changed && current === "done") { startStudy(state.mode); } return; }
     editing = false;
@@ -1223,11 +1242,11 @@ function init() {
     if (settings.autoNext) playCard();         // 睡眠模式從現在重新起算
   }
   $$("#qs-chips button").forEach((b) => b.onclick = () => {
-    settings.sleepMin = +b.dataset.m; saveSettings(); applySleep(); renderQs();
+    qsSleep = +b.dataset.m; renderQsSleep();
   });
   $("#qs-readzh").onchange = (e) => { settings.readZh = e.target.checked; saveSettings(); };
   $("#qs-shuffle").onchange = (e) => { settings.shuffle = e.target.checked; saveSettings(); };
-  $("#qs-ok").onclick = closeQs;
+  $("#qs-ok").onclick = () => { const apply = !qsDismiss; qsDismiss = false; closeQs(apply); };
   qsEl.addEventListener("pointerdown", (e) => { if (e.target === qsEl) closeQs(); });
   document.addEventListener("keydown", (e) => { if (!qsEl.hidden && e.key === "Escape") closeQs(); });
 
@@ -1796,7 +1815,7 @@ function init() {
 
   /* ---------------- 匯入 ---------------- */
   function updatePreview() {
-    const { rows } = parseImport($("#im-text").value);
+    const { rows } = parseWordsFile($("#im-text").value);
     const el = $("#im-preview");
     $("#im-go").disabled = rows.length === 0;
     el.textContent = rows.length
@@ -1812,17 +1831,23 @@ function init() {
     updatePreview();
   };
   $("#im-go").onclick = () => {
-    const { rows } = parseImport($("#im-text").value);
-    const seen = new Set([...state.cards.values()].map((c) => cardKey(c.word, c.example)));
-    const fresh = [];
+    const { rows } = parseWordsFile($("#im-text").value);
+    const have = new Map([...state.cards.values()].map((c) => [cardKey(c.word, c.example), c]));
+    const fresh = [], retag = [];
     let dup = 0;
     for (const r of rows) {
       const k = cardKey(r.word, r.example);
-      if (seen.has(k)) { dup++; continue; }
-      seen.add(k);
+      const old = have.get(k);
+      if (old) {
+        dup++;
+        // 已經有這張、但還沒標單元（以前匯入的）：把 TXT 裡的單元標題補上
+        if (r.unit && !old.base && (old.ut || "") !== r.unit && !retag.some((x) => x.id === old.id)) retag.push({ id: old.id, ut: r.unit });
+        continue;
+      }
+      have.set(k, r);
       fresh.push(r);
     }
-    if (!fresh.length) { $("#im-preview").textContent = `沒有新字卡（${dup} 張重複）`; return; }
+    if (!fresh.length && !retag.length) { $("#im-preview").textContent = `沒有新字卡（${dup} 張重複）`; return; }
 
     const base = Date.now();
     const col = cardsCol();
@@ -1830,7 +1855,12 @@ function init() {
     for (let i = 0; i < fresh.length; i += 400) {
       const batch = writeBatch(db);
       fresh.slice(i, i + 400).forEach((r, j) =>
-        batch.set(doc(col), { word: r.word, example: r.example, note: r.note, trans: r.trans || "", status: "new", createdAt: base + i + j }));
+        batch.set(doc(col), { word: r.word, example: r.example, note: r.note, trans: r.trans || "", status: "new", createdAt: base + i + j, ...(r.unit ? { ut: r.unit } : {}) }));
+      jobs.push(batch.commit());
+    }
+    for (let i = 0; i < retag.length; i += 400) {
+      const batch = writeBatch(db);
+      retag.slice(i, i + 400).forEach((x) => batch.update(cardRef(x.id), { ut: x.ut }));
       jobs.push(batch.commit());
     }
     // 不 await：離線時也立刻生效，連線後自動同步
@@ -1840,7 +1870,7 @@ function init() {
     updatePreview();
     show("home");
     renderHome();
-    toast(`已新增 ${fresh.length} 張` + (dup ? `，略過重複 ${dup} 張` : ""));
+    toast(`已新增 ${fresh.length} 張` + (retag.length ? `，補上 ${retag.length} 張的單元` : "") + (dup ? `，略過重複 ${dup} 張` : ""));
   };
 
   /* ---------------- 總編輯（純文字編輯器） ---------------- */
@@ -1888,9 +1918,9 @@ function init() {
   }
   // 依文字順序重新分配既有卡片的 createdAt（順序有變才回傳 true）
   function bkTimes(d) {
-    const S = d.lines.filter((l) => l.card && !l.card.base).map((l) => l.card.createdAt || 0).sort((a, b) => a - b);
+    const S = d.lines.filter((l) => l.card && !l.card.base && !l.card.lib).map((l) => l.card.createdAt || 0).sort((a, b) => a - b);
     let ei = 0;
-    const t = d.lines.map((l) => (l.card ? (l.card.base ? l.card.createdAt || 0 : S[ei++]) : null));   // 內建字庫的順序由 words.txt 決定，固定不動
+    const t = d.lines.map((l) => (l.card ? (l.card.base || l.card.lib ? l.card.createdAt || 0 : S[ei++]) : null));   // 內建字庫的順序由 words.txt 決定，固定不動
     for (let i = 0; i < t.length;) {
       if (t[i] !== null) { i++; continue; }
       let j = i; while (j < t.length && t[j] === null) j++;
@@ -1999,7 +2029,7 @@ function init() {
           next.push({ ...l.card, ...vals });
           return;
         }
-        if ((l.card.createdAt || 0) !== t[i]) patch.createdAt = t[i];
+        if (!l.card.lib && (l.card.createdAt || 0) !== t[i]) patch.createdAt = t[i];
         if (Object.keys(patch).length) ops.push((b) => b.update(cardRef(l.card.id), patch));
         next.push({ ...l.card, ...vals, createdAt: t[i] });
       } else {
@@ -2049,7 +2079,11 @@ function init() {
     $("#s-shuffle").checked = settings.shuffle;
     $("#s-fx").checked = settings.fx;
     $("#s-unit").value = String(state.unit);
-    $("#s-lib").textContent = state.base.size ? `內建字庫 ${state.base.size} 張（打包在 App 裡，不用從雲端讀）。` : "還沒有內建字庫：把單字放進專案的 words.txt 再重新打包。";
+    const shadow = [...state.cards.values()].filter((c) => c.lib).length;
+    const tagged = [...state.cards.values()].filter((c) => c.ut && !c.base && !c.lib).length;
+    $("#s-lib").textContent = `版本 ${APP_VER}　` + (state.base.size
+      ? `內建字庫 ${state.base.size} 張・${state.cats.length} 個分類・${state.units.length} 個單元${shadow ? `（其中 ${shadow} 張的進度還在雲端舊字卡裡，可用下方按鈕整理）` : ""}。`
+      : `沒有內建字庫（words.txt）${tagged ? `；匯入的字卡中有 ${tagged} 張標了單元` : ""}，目前 ${state.units.length} 個單元。`);
     const dups = migratable().length;
     $("#s-migrate").hidden = !dups;
     $("#s-migrate").textContent = `把 ${dups} 張雲端字卡的進度收進內建字庫`;
