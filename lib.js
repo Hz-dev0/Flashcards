@@ -35,6 +35,29 @@ export function cardKey(word, example) {
   return norm(word) + "\u0000" + norm(example);
 }
 
+/** 53-bit 字串雜湊（cyrb53），用來替內建字庫的每張卡產生固定的編號 */
+export function cyrb53(str, seed = 0) {
+  let h1 = 0xdeadbeef ^ seed, h2 = 0x41c6ce57 ^ seed;
+  for (let i = 0; i < str.length; i++) {
+    const ch = str.charCodeAt(i);
+    h1 = Math.imul(h1 ^ ch, 2654435761);
+    h2 = Math.imul(h2 ^ ch, 1597334677);
+  }
+  h1 = Math.imul(h1 ^ (h1 >>> 16), 2246822507) ^ Math.imul(h2 ^ (h2 >>> 13), 3266489909);
+  h2 = Math.imul(h2 ^ (h2 >>> 16), 2246822507) ^ Math.imul(h1 ^ (h1 >>> 13), 3266489909);
+  return 4294967296 * (2097151 & h2) + (h1 >>> 0);
+}
+
+/** 內建字庫的卡片編號：由「單字 + 例句」決定，跟行號、順序無關，所以在 words.txt 中間插行不會讓進度錯位 */
+export const baseCardId = (word, example) => "b" + cyrb53(cardKey(word, example)).toString(36);
+
+/** 讀 words.txt：去掉文字編輯器匯出時行首的 [編號]，其餘格式同批量匯入 */
+export function parseWordsFile(text) {
+  const t = String(text || "").replace(/^\uFEFF/, "");
+  if (/^\s*<(!doctype|html)/i.test(t)) return { rows: [], skipped: [] };   // 伺服器對不存在的檔案回傳了網頁
+  return parseImport(t.replace(/^[ \t]*\[\d+\][ \t]*/gm, ""));
+}
+
 export function shuffle(arr) {
   const a = arr.slice();
   for (let i = a.length - 1; i > 0; i--) {

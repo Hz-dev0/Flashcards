@@ -14,7 +14,7 @@
   <link rel="manifest" href="manifest.json">
   <link rel="icon" type="image/png" href="icons/icon-192.png">
   <link rel="apple-touch-icon" href="icons/icon-192.png">
-  <link rel="stylesheet" href="style.css?v=27">
+  <link rel="stylesheet" href="style.css?v=28">
 </head>
 <body>
   <!-- icon sprite -->
@@ -64,11 +64,13 @@
         <span class="row-title">複習</span>
         <span class="row-sub"><b id="h-known">0</b> 張已會</span>
       </button>
+      <p id="h-unit" class="muted small center" hidden></p>
       <button class="row" id="h-verb">
         <span class="row-title">動詞三態</span>
         <span class="row-sub"><b id="h-verbs">0</b> 個動詞</span>
       </button>
     </div>
+    <button class="btn" id="h-range" hidden></button>
     <p id="h-empty" class="muted center" hidden></p>
     <button class="btn" id="h-empty-import" hidden>匯入字卡</button>
   </section>
@@ -83,7 +85,6 @@
         <div class="menu">
           <button type="button" class="icon" data-menu aria-haspopup="menu" aria-expanded="false" aria-label="更多"><svg class="ic"><use href="#i-more"/></svg></button>
           <div class="menu-pop" role="menu" hidden>
-            <button type="button" class="mi" role="menuitem" id="st-gear"><svg class="ic"><use href="#i-gear"/></svg>練習範圍<span class="mi-tag">已啟用</span></button>
             <button type="button" class="mi" role="menuitem" id="a-edit"><svg class="ic"><use href="#i-edit"/></svg>編輯這張卡</button>
             <button type="button" class="mi" role="menuitem" id="st-manage"><svg class="ic"><use href="#i-list"/></svg>管理字卡</button>
             <button type="button" class="mi" role="menuitem" id="st-settings"><svg class="ic"><use href="#i-sliders"/></svg>設定</button>
@@ -218,6 +219,8 @@
       <h1 class="title" id="dn-title">這一輪看完了</h1>
       <p class="muted" id="dn-sub"></p>
       <button class="btn primary" id="dn-again">再來一輪</button>
+      <button class="btn primary" id="dn-next" hidden>下一段</button>
+      <button class="btn" id="dn-range" hidden>調整練習範圍</button>
       <button class="btn" id="dn-home" data-back>回首頁</button>
     </div>
   </section>
@@ -277,8 +280,21 @@ pragmatic  We need a pragmatic solution.
     <h2 class="set-h">練習</h2>
     <div class="set-card">
       <label class="set-row"><span>隨機順序</span><input id="s-shuffle" class="sw" type="checkbox"></label>
+      <label class="set-row"><span>單元大小<small>內建字庫每幾張一個單元；前一個單元全部「會了」才解鎖下一個</small></span>
+        <select id="s-unit">
+          <option value="0">不分單元</option>
+          <option value="30">30 張</option>
+          <option value="50">50 張</option>
+          <option value="100">100 張</option>
+          <option value="150">150 張</option>
+          <option value="200">200 張</option>
+          <option value="300">300 張</option>
+        </select></label>
       <label class="set-row"><span>動詞三態：答題音效與震動</span><input id="s-fx" class="sw" type="checkbox"></label>
     </div>
+
+    <p class="set-foot" id="s-lib"></p>
+    <button class="btn set-test" id="s-migrate" hidden></button>
 
     <button class="btn primary set-test" id="s-install" hidden>安裝到手機</button>
 
@@ -361,6 +377,16 @@ pragmatic  We need a pragmatic solution.
         <label class="set-row"><span>朗讀時唸出中文</span><input id="qs-readzh" class="sw" type="checkbox"></label>
         <label class="set-row"><span>隨機順序</span><input id="qs-shuffle" class="sw" type="checkbox"></label>
       </div>
+      <div class="set-card">
+        <label class="set-row"><span>只練習指定範圍</span><input id="qs-rg-on" class="sw" type="checkbox"></label>
+        <div class="set-row col">
+          <div class="rg-fields">
+            <label class="field"><span>從第</span><input id="qs-rg-from" type="number" inputmode="numeric" min="1" step="1" placeholder="1"></label>
+            <label class="field"><span>到第</span><input id="qs-rg-to" type="number" inputmode="numeric" min="1" step="1"></label>
+          </div>
+          <p class="muted small" id="qs-rg-hint"></p>
+        </div>
+      </div>
       <button type="button" class="btn primary set-test" id="qs-ok">完成</button>
     </div>
   </div>
@@ -376,6 +402,6 @@ pragmatic  We need a pragmatic solution.
   </div>
 
   <script src="pwa.js" defer></script>
-  <script type="module" src="app.js?v=30"></script>
+  <script type="module" src="app.js?v=31"></script>
 </body>
 </html>

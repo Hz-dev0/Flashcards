@@ -5,13 +5,13 @@ import {
 } from "https://www.gstatic.com/firebasejs/11.0.2/firebase-auth.js";
 import {
   initializeFirestore, getFirestore, persistentLocalCache, persistentMultipleTabManager,
-  collection, doc, onSnapshot, writeBatch, setDoc, updateDoc, deleteDoc,
+  collection, doc, onSnapshot, writeBatch, setDoc, updateDoc, deleteDoc, deleteField,
 } from "https://www.gstatic.com/firebasejs/11.0.2/firebase-firestore.js";
 import { firebaseConfig } from "./firebase-config.js?v=9";
 import {
-  parseImport, cardKey, shuffle, splitHighlight, bulkLine, diffBulk,
+  parseImport, parseWordsFile, baseCardId, cardKey, shuffle, splitHighlight, bulkLine, diffBulk,
   VERB_FIELDS, verbBulkLine, diffVerbBulk, checkVerbAnswer, verbSay, verbAlts, highlightForm, langSegments,
-} from "./lib.js?v=11";
+} from "./lib.js?v=12";
 import { VERB_SEED } from "./verbs-seed.js?v=1";
 
 const $ = (s) => document.querySelector(s);
@@ -26,7 +26,7 @@ const TOP_VIEWS = ["setup", "auth", "home"];
 try { if (history.state?.sub) history.replaceState(null, ""); } catch {}
 window.addEventListener("popstate", () => {
   if (!current || TOP_VIEWS.includes(current)) return;
-  const open = ["#rg-cancel", "#cf-no", "#ed-cancel", "#rt-ok"].find((b) => !document.querySelector(b)?.closest(".sheet")?.hidden);
+  const open = ["#rg-cancel", "#cf-no", "#ed-cancel", "#rt-ok", "#qs-ok"].find((b) => !document.querySelector(b)?.closest(".sheet")?.hidden);
   if (open) { try { history.pushState({ sub: true }, ""); } catch {} document.querySelector(open).click(); return; }
   const back = $(`#v-${current}`)?.querySelector("[data-back], #vm-back, #bk-back");
   if (back) back.click(); else show("home");
@@ -248,6 +248,8 @@ function syncError(err) {
 /* ------------------------------------------------------------------ */
 /* 啟動                                                                 */
 /* ------------------------------------------------------------------ */
+// 內建字庫（words.txt）的進度：known＝已會（id → 時間）、hidden＝刪掉的卡、edits＝在 App 內改過的欄位
+const freshProg = () => ({ known: {}, hidden: {}, edits: {} });
 const freshPrefs = () => ({ word: { on: false, from: 1, to: null }, verb: { on: false, from: 1, to: null } });
 const normPref = (p) => {
   let from = Math.max(1, parseInt(p?.from, 10) || 1);
@@ -278,13 +280,93 @@ function init() {
   }
 
   const state = {
-    uid: null, cards: new Map(), verbs: new Map(), gone: new Set(), prefs: freshPrefs(), unsub: null, ready: false, pending: false,
+    uid: null, cards: new Map(), cloud: new Map(), base: new Map(), baseKeys: new Map(), prog: freshProg(), unit: 100, units: [], unlockedN: 0, verbs: new Map(), gone: new Set(), prefs: freshPrefs(), unsub: null, ready: false, pending: false,
     mode: "new", queue: [], idx: 0, current: null,
     stats: { keep: 0, del: 0, next: 0 },
   };
   // 與其他 app 共用同一個 Firebase 專案，所以根集合用獨立名稱 wordcards
   const cardsCol = () => collection(db, "wordcards", state.uid, "cards");
   const cardRef = (id) => doc(db, "wordcards", state.uid, "cards", id);
+  const progRef = () => doc(db, "wordcards", state.uid, "cards", "progress");
+
+  /* ---------------- 內建字庫（words.txt 打包進 App）＋雲端只記進度 ---------------- */
+  // 字卡內容在 words.txt（build 時一起打包），雲端只存一份 progress 文件：已會的編號、刪掉的、改過的欄位。
+  // 你自己在 App 裡新增的字卡（批量匯入／文字編輯新增）仍然是一張一個雲端文件。
+  async function loadBase() {
+    try {
+      const r = await fetch("words.txt");
+      if (!r.ok) return;
+      const { rows } = parseWordsFile(await r.text());
+      const base = new Map(), keys = new Map();
+      for (const r of rows) {
+        const key = cardKey(r.word, r.example);
+        if (keys.has(key)) continue;                       // 同樣的單字＋例句只留第一張
+        let id = baseCardId(r.word, r.example);
+        while (base.has(id)) id += "x";                    // 雜湊撞號的保險
+        const c = { id, base: true, word: r.word, example: r.example, note: r.note, trans: r.trans || "", createdAt: base.size + 1 };
+        base.set(id, c); keys.set(key, c);
+      }
+      state.base = base; state.baseKeys = keys;
+      if (state.uid) { mergeCards(); renderHome(); }
+    } catch (e) { console.warn("讀不到 words.txt", e); }
+  }
+  // state.cards = 內建字庫（套上進度）＋雲端自己的字卡。雲端已有同一張（單字＋例句相同）時以雲端為準，避免重複。
+  function mergeCards() {
+    const out = new Map();
+    const cloudKeys = new Set();
+    for (const c of state.cloud.values()) cloudKeys.add(cardKey(c.word, c.example));
+    const { known, hidden, edits } = state.prog;
+    for (const b of state.base.values()) {
+      if (hidden[b.id] || cloudKeys.has(cardKey(b.word, b.example))) continue;
+      const k = known[b.id];
+      const c = { ...b, ...(edits[b.id] || {}), status: k ? "known" : "new" };
+      if (k) c.knownAt = k;
+      out.set(b.id, c);
+    }
+    for (const [id, c] of state.cloud) out.set(id, c);
+    state.cards = out;
+    applyUnits();
+  }
+  // 單元：內建字庫依 words.txt 的順序每 state.unit 張一個單元；前一個單元全部「會了」才解鎖下一個。
+  // 解鎖狀態不另外存，直接由進度（已會的編號）算出來，所以多台裝置一定一致。自己新增的卡不受限制。
+  function applyUnits() {
+    const size = state.unit, list = [...state.cards.values()].filter((c) => c.base), units = [];
+    if (size > 0) {
+      let open = true;
+      for (let i = 0; i < list.length; i += size) {
+        const chunk = list.slice(i, i + size);
+        const left = chunk.filter((c) => c.status !== "known").length;
+        chunk.forEach((c) => { c.unit = units.length + 1; c.locked = !open; });
+        units.push({ n: units.length + 1, total: chunk.length, left, locked: !open });
+        if (left > 0) open = false;
+      }
+    } else list.forEach((c) => { c.unit = 0; c.locked = false; });
+    state.units = units;
+    const unlocked = units.filter((u) => !u.locked).length;
+    if (state.unlockedN && unlocked > state.unlockedN) toast(`🎉 解鎖單元 ${unlocked}`);
+    state.unlockedN = unlocked;
+  }
+  function saveUnit(n) {
+    state.unit = n;
+    if (state.uid) setDoc(prefsRef(), { type: "prefs", unit: n }, { merge: true }).catch(syncError);
+    state.unlockedN = 0; applyUnits(); renderHome();
+  }
+  const progSet = (obj) => setDoc(progRef(), { type: "progress", ...obj }, { merge: true }).catch(syncError);
+  // 改狀態／內容／刪除：內建的卡寫進 progress，自己新增的卡寫回原本的文件；本機立刻生效，不用等雲端回應
+  function setStatus(c, status) {
+    const known = status === "known";
+    c.status = status;
+    if (known) c.knownAt = Date.now();
+    if (c.base) progSet({ known: { [c.id]: known ? c.knownAt : deleteField() } });
+    else updateDoc(cardRef(c.id), known ? { status, knownAt: c.knownAt } : { status }).catch(syncError);
+  }
+  function patchCard(c, patch) {
+    Object.assign(c, patch);
+    if (c.base) progSet({ edits: { [c.id]: patch } });
+    else updateDoc(cardRef(c.id), patch).catch(syncError);
+  }
+  function hideBase(id, on) { progSet({ hidden: { [id]: on ? true : deleteField() } }); }
+  loadBase();
 
   /* ---------------- 驗證（只用 Google 登入） ---------------- */
   const AUTH_ERRORS = {
@@ -349,18 +431,24 @@ function init() {
       state.pending = snap.metadata.hasPendingWrites;
       snap.docChanges().forEach((ch) => {
         const id = ch.doc.id;
-        if (ch.type === "removed") { state.cards.delete(id); state.verbs.delete(id); if (id === "verbmeta") state.gone = new Set(); if (id === "prefs") { state.prefs = freshPrefs(); renderGears(); } return; }
+        if (ch.type === "removed") { state.cloud.delete(id); state.verbs.delete(id); if (id === "verbmeta") state.gone = new Set(); if (id === "progress") state.prog = freshProg(); if (id === "prefs") { state.prefs = freshPrefs(); renderGears(); } return; }
         const data = ch.doc.data();
         if (data.type === "verbmeta") { state.gone = new Set(data.gone || []); return; }   // 記錄「刪掉的內建動詞」
         if (data.type === "prefs") {                                                       // 練習範圍設定（雲端同步）
           state.prefs = { word: normPref(data.word), verb: normPref(data.verb) };
+          if (Number.isFinite(data.unit)) state.unit = data.unit;                          // 單元大小（0＝不分單元），多裝置共用
           renderGears();
           return;
         }
+        if (data.type === "progress") {                                                    // 內建字庫的進度（單一文件）
+          state.prog = { known: data.known || {}, hidden: data.hidden || {}, edits: data.edits || {} };
+          return;
+        }
         // 動詞三態的卡不混進一般單字
-        (data.type === "verb" ? state.verbs : state.cards).set(id, { id, ...data });
+        (data.type === "verb" ? state.verbs : state.cloud).set(id, { id, ...data });
       });
       state.ready = true;
+      mergeCards();
       renderHome();
     }, (err) => {
       if (err?.code === "permission-denied") {
@@ -375,17 +463,29 @@ function init() {
   }
   function detach() {
     if (state.unsub) { state.unsub(); state.unsub = null; }
-    state.uid = null; state.cards.clear(); state.verbs.clear(); state.gone = new Set(); state.prefs = freshPrefs(); state.ready = false;
+    state.uid = null; state.cards = new Map(); state.cloud.clear(); state.prog = freshProg(); state.units = []; state.unlockedN = 0; state.verbs.clear(); state.gone = new Set(); state.prefs = freshPrefs(); state.ready = false;
   }
 
   /* ---------------- 首頁 ---------------- */
+  // 首頁的數字、按鈕狀態跟學習時一致：有開練習範圍就只算範圍內的卡
   function counts() {
     let n = 0, k = 0;
-    for (const c of state.cards.values()) (c.status === "known" ? k++ : n++);
+    for (const c of inRange("word", [...state.cards.values()])) (c.status === "known" ? k++ : c.locked || n++);
     return { n, k };
   }
+  const rangeText = (kind, total) => {
+    const p = state.prefs[kind];
+    return `第 ${p.from} ～ ${p.to == null ? total : Math.min(p.to, total)}`;
+  };
   function renderHome() {
     const { n, k } = counts();
+    const rb = $("#h-range");
+    rb.hidden = !(state.prefs.word.on && state.cards.size);
+    rb.textContent = `練習範圍：${rangeText("word", state.cards.size)}（全部 ${state.cards.size} 張）・調整`;
+    const cur = state.units.find((u) => u.left > 0);
+    const ub = $("#h-unit");
+    ub.hidden = !state.units.length;
+    ub.textContent = cur ? `單元 ${cur.n} / ${state.units.length}・本單元還剩 ${cur.left} 張` : `🎉 ${state.units.length} 個單元全部完成`;
     $("#h-new").textContent = n;
     $("#h-known").textContent = k;
     $("#h-verbs").textContent = state.verbs.size;
@@ -410,6 +510,7 @@ function init() {
   }
   window.addEventListener("online", renderSync);
   window.addEventListener("offline", renderSync);
+  $("#h-range").onclick = () => openQs();
   $("#h-learn").onclick = () => startStudy("new");
   $("#h-review").onclick = () => startStudy("known");
   $("#h-verb").onclick = () => { show("verb"); vqRefresh(); };
@@ -432,11 +533,17 @@ function init() {
   }));
 
   /* ---------------- 學習 / 複習 ---------------- */
-  const inMode = (c) => (state.mode === "known" ? c.status === "known" : c.status !== "known");
+  const inMode = (c) => (state.mode === "known" ? c.status === "known" : c.status !== "known" && !c.locked);
 
   function startStudy(mode) {
     state.mode = mode;
-    if (!buildQueue()) { toast("沒有可看的字卡"); show("home"); renderHome(); return; }
+    if (!buildQueue()) {
+      show("home"); renderHome();
+      const p = state.prefs.word;
+      if (p.on) toast(`第 ${p.from} ～ ${p.to ?? "最後"} 範圍內已經沒有${mode === "known" ? "已會" : "待學"}的字卡`, { label: "調整範圍", fn: () => openQs() });
+      else toast("沒有可看的字卡");
+      return;
+    }
     state.stats = { keep: 0, del: 0, next: 0 };
     state.hinted = false;
     renderMode();
@@ -539,7 +646,7 @@ function init() {
     state.current = c;
     if (!c) return finish();
     renderCard(c);
-    $("#st-progress").textContent = `${state.idx + 1} / ${state.queue.length}`;
+    $("#st-progress").textContent = `${state.idx + 1} / ${state.queue.length}` + (state.prefs.word.on ? ` ・ 範圍 ${rangeText("word", state.cards.size).replace(/ /g, "")}` : "");
     $("#a-keep").textContent = state.mode === "known" ? "還不熟" : "會了";
     const stage = $("#stage");
     stage.classList.remove("swap"); void stage.offsetWidth; stage.classList.add("swap");
@@ -557,18 +664,37 @@ function init() {
     const known = state.mode === "known";
     $("#dn-title").textContent = known ? "複習完了" : "這一輪看完了";
     $("#dn-sub").textContent = `${known ? "還不熟" : "會了"} ${s.keep} · 刪除 ${s.del} · 略過 ${s.next}`;
-    $("#dn-again").hidden = ![...state.cards.values()].some(inMode);
+    applyUnits();
+    const left = inRange("word", [...state.cards.values()]).some(inMode);   // 範圍內還有沒有卡（不是全部）
+    $("#dn-again").hidden = !left;
+    const nx = nextChunk();
+    $("#dn-next").hidden = left || !nx;
+    if (nx) $("#dn-next").textContent = `下一段（第 ${nx.from} ～ ${Math.min(nx.to, state.cards.size)}）`;
+    $("#dn-range").hidden = !state.prefs.word.on;
     show("done");
   }
   $("#dn-again").onclick = () => startStudy(state.mode);
+  // 範圍都練完了 → 一鍵換到下一段（長度同目前範圍）
+  function nextChunk() {
+    const p = state.prefs.word;
+    if (!p.on || !p.to) return null;
+    const from = p.to + 1;
+    if (from > state.cards.size) return null;
+    return { on: true, from, to: from + (p.to - p.from) };
+  }
+  $("#dn-next").onclick = () => { const nx = nextChunk(); if (!nx) return; savePref("word", nx); startStudy(state.mode); };
+  $("#dn-range").onclick = () => openQs();
 
   const toData = (c) => { const { id, ...data } = c; return data; };
 
   function removeCard(c) {
     const data = toData(c);
-    deleteDoc(cardRef(c.id)).catch(syncError);
+    if (c.base) hideBase(c.id, true); else deleteDoc(cardRef(c.id)).catch(syncError);
+    state.cards.delete(c.id);
     const label = c.word.length > 18 ? c.word.slice(0, 18) + "…" : c.word;
-    toast(`已刪除「${label}」`, { label: "復原", fn: () => setDoc(cardRef(c.id), data).catch(syncError) });
+    toast(`已刪除「${label}」`, { label: "復原", fn: () => {
+      if (c.base) hideBase(c.id, false); else setDoc(cardRef(c.id), data).catch(syncError);
+    } });
   }
 
   function act(kind) {
@@ -577,8 +703,7 @@ function init() {
     clearAdv();
     if (NATIVE && (kind === "keep" || kind === "del")) nativeRemove = c.id;
     if (kind === "keep") {
-      const patch = state.mode === "known" ? { status: "new" } : { status: "known", knownAt: Date.now() };
-      updateDoc(cardRef(c.id), patch).catch(syncError);
+      setStatus(c, state.mode === "known" ? "new" : "known");
       state.stats.keep++;
     } else if (kind === "del") {
       removeCard(c);
@@ -721,12 +846,11 @@ function init() {
     renderGears();
   }
   function renderGears() {
-    $("#st-gear").dataset.on = state.prefs.word.on ? "1" : "0";
     $("#vq-gear").dataset.on = state.prefs.verb.on ? "1" : "0";
   }
 
   // 各種浮層（範圍／刪除確認／編輯／語速）開著時，不要讓背景的連播或快捷鍵繼續動
-  const sheetOpen = () => ["#rg", "#cf", "#ed", "#rt"].some((id) => !$(id).hidden);
+  const sheetOpen = () => ["#rg", "#cf", "#ed", "#rt", "#qs"].some((id) => !$(id).hidden);
   function pauseForSheet() {
     editing = true; stopSpeech(); clearTimeout(vq.timer); vq.run++;
   }
@@ -772,7 +896,6 @@ function init() {
     rgEl.hidden = true;
     resumeAfterSheet();
   }
-  $("#st-gear").onclick = () => openRange("word");
   $("#vq-gear").onclick = () => openRange("verb");
   ["#rg-on", "#rg-from", "#rg-to"].forEach((id) => $(id).addEventListener("input", rgHint));
   $("#rg-cancel").onclick = closeRange;
@@ -851,8 +974,7 @@ function init() {
     const clean = (v) => v.replace(/\s*\n\s*/g, " ").trim();
     const patch = { word: clean($("#ed-word").value), example: clean($("#ed-example").value), note: clean($("#ed-note").value), trans: clean($("#ed-trans").value) };
     if (!patch.word) { toast("單字不能空白"); return; }
-    updateDoc(cardRef(c.id), patch).catch(syncError);
-    Object.assign(c, patch);
+    patchCard(c, patch);
     renderCard(c);
     closeEdit(settings.autoplay || settings.autoNext);
   };
@@ -907,18 +1029,44 @@ function init() {
     $("#qs-sleep-out").textContent = settings.sleepMin ? (remain ? `剩約 ${remain} 分鐘` : `${settings.sleepMin} 分鐘`) : "關閉";
     $("#qs-readzh").checked = !!settings.readZh;
     $("#qs-shuffle").checked = !!settings.shuffle;
+    const p = state.prefs.word;
+    $("#qs-rg-on").checked = p.on;
+    $("#qs-rg-from").value = p.from;
+    $("#qs-rg-to").value = p.to ?? "";
+    $("#qs-rg-to").placeholder = String(state.cards.size || "");
+    qsHint();
   }
+  const qsRead = () => normPref({ on: $("#qs-rg-on").checked, from: parseInt($("#qs-rg-from").value, 10) || 1, to: parseInt($("#qs-rg-to").value, 10) || null });
+  function qsHint() {
+    const n = state.cards.size, on = $("#qs-rg-on").checked;
+    $("#qs-rg-from").disabled = $("#qs-rg-to").disabled = !on;
+    if (!on) { $("#qs-rg-hint").textContent = `目前練習全部，共 ${n} 張。`; return; }
+    const p = qsRead(), hi = p.to == null ? n : Math.min(p.to, n);
+    $("#qs-rg-hint").textContent = `第 ${p.from} ～ ${hi} 張，共 ${Math.max(0, hi - p.from + 1)} 張（全部共 ${n}）。序號 = 文字編輯的編號。`;
+  }
+  ["#qs-rg-on", "#qs-rg-from", "#qs-rg-to"].forEach((id) => $(id).addEventListener("input", qsHint));
+  // 學習中、首頁（範圍練完時）、完成畫面都能開；只有學習中才需要暫停連播
   function openQs() {
-    if (current !== "study" || editing || !qsEl.hidden) return;
-    editing = true;            // 調整期間暫停連播／循環
-    stopSpeech();
+    if (editing || !qsEl.hidden || !["study", "home", "done"].includes(current)) return;
+    if (current === "study") { editing = true; stopSpeech(); }   // 調整期間暫停連播／循環
     renderQs();
     qsEl.hidden = false;
   }
   function closeQs() {
     if (qsEl.hidden) return;
+    const p = qsRead();
+    if (p.on && p.from > state.cards.size) { toast(`起始序號超過總數（共 ${state.cards.size}）`); return; }
+    const changed = JSON.stringify(p) !== JSON.stringify(state.prefs.word);
     qsEl.hidden = true;
+    if (changed) savePref("word", p);
+    if (current !== "study") { renderHome(); if (changed && current === "done") { startStudy(state.mode); } return; }
     editing = false;
+    if (changed) {                              // 範圍改了：重新排這一輪
+      stopSpeech();
+      if (!buildQueue()) { toast("這個範圍裡沒有可看的字卡"); show("home"); renderHome(); return; }
+      showCard();
+      return;
+    }
     const c = state.current;
     if (c) setTrans(c, !!settings.readZh);     // 「唸出中文」改了，中文例句的顯示方式跟著變
     if (settings.autoNext) playCard();         // 睡眠模式從現在重新起算
@@ -1475,8 +1623,7 @@ function init() {
     el.value = v;
     if (k === "word" && !v) { el.value = c.word; toast("單字不能空白"); return; }
     if (v === (c[k] || "")) return;
-    c[k] = v;
-    updateDoc(cardRef(c.id), { [k]: v }).catch(syncError);
+    patchCard(c, { [k]: v });
     tr.classList.remove("saved"); void tr.offsetWidth; tr.classList.add("saved");
   });
   mBody.addEventListener("click", (e) => {
@@ -1485,7 +1632,7 @@ function init() {
     const c = state.cards.get(b.closest("tr").dataset.id);
     if (!c) return;
     if (b.dataset.act === "del") removeCard(c);
-    else updateDoc(cardRef(c.id), c.status === "known" ? { status: "new" } : { status: "known", knownAt: Date.now() }).catch(syncError);
+    else { setStatus(c, c.status === "known" ? "new" : "known"); renderManage(); }
   });
   $("#m-q").addEventListener("input", (e) => { mg.q = e.target.value; mg.limit = PAGE; renderManage(); });
   $$(".seg [data-f]").forEach((b) => b.addEventListener("click", () => {
@@ -1590,9 +1737,9 @@ function init() {
   }
   // 依文字順序重新分配既有卡片的 createdAt（順序有變才回傳 true）
   function bkTimes(d) {
-    const S = d.lines.filter((l) => l.card).map((l) => l.card.createdAt || 0).sort((a, b) => a - b);
+    const S = d.lines.filter((l) => l.card && !l.card.base).map((l) => l.card.createdAt || 0).sort((a, b) => a - b);
     let ei = 0;
-    const t = d.lines.map((l) => (l.card ? S[ei++] : null));
+    const t = d.lines.map((l) => (l.card ? (l.card.base ? l.card.createdAt || 0 : S[ei++]) : null));   // 內建字庫的順序由 words.txt 決定，固定不動
     for (let i = 0; i < t.length;) {
       if (t[i] !== null) { i++; continue; }
       let j = i; while (j < t.length && t[j] === null) j++;
@@ -1686,6 +1833,7 @@ function init() {
     if (!(d.updates.length || d.adds.length || d.deletes.length || moved)) return;
     if (d.deletes.length && !confirm(`將刪除 ${d.deletes.length} 張字卡，確定嗎？（儲存後可按「復原」）`)) return;
     const ops = [];
+    const baseEdits = {}, baseHidden = {};
     const next = [];   // 儲存後的新快照（依文字順序）
     d.lines.forEach((l, i) => {
       const r = l.row;
@@ -1695,6 +1843,11 @@ function init() {
       if (l.card) {
         const patch = {};
         for (const k of Object.keys(vals)) if (vals[k] !== (l.card[k] || "")) patch[k] = vals[k];
+        if (l.card.base) {                                   // 內建字庫的卡：改的內容記在 progress，順序不能動
+          if (Object.keys(patch).length) baseEdits[l.card.id] = patch;
+          next.push({ ...l.card, ...vals });
+          return;
+        }
         if ((l.card.createdAt || 0) !== t[i]) patch.createdAt = t[i];
         if (Object.keys(patch).length) ops.push((b) => b.update(cardRef(l.card.id), patch));
         next.push({ ...l.card, ...vals, createdAt: t[i] });
@@ -1707,9 +1860,10 @@ function init() {
         next.push({ id: ref.id, ...data });
       }
     });
-    const backup = d.deletes.map((c) => ({ id: c.id, data: toData(c) }));
+    const backup = d.deletes.map((c) => ({ id: c.id, data: toData(c), base: !!c.base }));
     if (bkVerb()) markGone(d.deletes);
-    for (const c of d.deletes) ops.push((b) => b.delete(cardRef(c.id)));
+    for (const c of d.deletes) { if (c.base) baseHidden[c.id] = true; else ops.push((b) => b.delete(cardRef(c.id))); }
+    if (Object.keys(baseEdits).length || Object.keys(baseHidden).length) progSet({ edits: baseEdits, hidden: baseHidden });
     const jobs = [];
     for (let i = 0; i < ops.length; i += 400) {
       const batch = writeBatch(db);
@@ -1723,7 +1877,7 @@ function init() {
     if (backup.length) {
       toast(msg, { label: "復原刪除", fn: () => {
         const b = writeBatch(db);
-        backup.slice(0, 400).forEach((x) => b.set(cardRef(x.id), x.data));
+        backup.slice(0, 400).forEach((x) => { if (x.base) hideBase(x.id, false); else b.set(cardRef(x.id), x.data); });
         b.commit().catch(syncError);
         if (bkVerb()) unmarkGone(backup.map((x) => x.data));
         setTimeout(() => { if (current === "bulk" && !bkDirty()) bkLoad(); }, 400);
@@ -1743,6 +1897,11 @@ function init() {
     $("#s-sleep").value = String(settings.sleepMin || 0);
     $("#s-shuffle").checked = settings.shuffle;
     $("#s-fx").checked = settings.fx;
+    $("#s-unit").value = String(state.unit);
+    $("#s-lib").textContent = state.base.size ? `內建字庫 ${state.base.size} 張（打包在 App 裡，不用從雲端讀）。` : "還沒有內建字庫：把單字放進專案的 words.txt 再重新打包。";
+    const dups = migratable().length;
+    $("#s-migrate").hidden = !dups;
+    $("#s-migrate").textContent = `把 ${dups} 張雲端字卡的進度收進內建字庫`;
     $("#s-account").textContent = auth.currentUser?.email || "";
   }
   $("#s-lang").onchange = (e) => { settings.lang = e.target.value; saveSettings(); };
@@ -1755,6 +1914,30 @@ function init() {
   };
   $("#s-auto").onchange = (e) => { settings.autoplay = e.target.checked; saveSettings(); };
   $("#s-shuffle").onchange = (e) => { settings.shuffle = e.target.checked; saveSettings(); };
+  $("#s-unit").onchange = (e) => saveUnit(+e.target.value || 0);
+  // 雲端裡跟內建字庫「單字＋例句」相同的舊字卡
+  const migratable = () => [...state.cloud.values()].filter((c) => state.baseKeys.has(cardKey(c.word, c.example)));
+  $("#s-migrate").onclick = () => {
+    const list = migratable();
+    if (!list.length) return;
+    const known = {}, edits = {};
+    for (const c of list) {
+      const b = state.baseKeys.get(cardKey(c.word, c.example));
+      if (c.status === "known") known[b.id] = Math.max(known[b.id] || 0, c.knownAt || Date.now());
+      const diff = {};
+      for (const k of ["word", "example", "note", "trans"]) if ((c[k] || "") !== (b[k] || "")) diff[k] = c[k] || "";
+      if (Object.keys(diff).length) edits[b.id] = diff;
+    }
+    if (!confirm(`將把這 ${list.length} 張雲端字卡的進度（已會 ${Object.keys(known).length} 張）收進單一份進度文件，並刪除這 ${list.length} 份雲端字卡，之後開啟 App 不再重複讀取它們。\n\n這個動作無法復原，確定嗎？`)) return;
+    progSet({ known, edits });                       // 先寫進度，再刪舊卡（寫入依序送出）
+    for (let i = 0; i < list.length; i += 400) {
+      const batch = writeBatch(db);
+      list.slice(i, i + 400).forEach((c) => batch.delete(cardRef(c.id)));
+      batch.commit().catch(syncError);
+    }
+    toast(`已整理 ${list.length} 張`);
+    setTimeout(() => { if (current === "settings") fillSettings(); }, 500);
+  };
   $("#s-fx").onchange = (e) => { settings.fx = e.target.checked; saveSettings(); };
   $("#s-test").onclick = () => speakParts([SAMPLES[settings.lang] || "Hello", ...(autoZh() ? ["這是中文語音測試。"] : [])]);
 }
