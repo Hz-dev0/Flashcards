@@ -22,7 +22,7 @@ let current = null;
 
 // 手機系統返回鍵：在字卡／管理等子頁按返回，回到上一層（首頁）而不是退出 APP。
 // 作法：離開首頁層級時墊一筆歷史紀錄，系統返回只會消耗這一筆，並改為觸發頁面內的返回鈕。
-const APP_VER = "39";      // 設定頁會顯示，用來確認手機上裝的是不是最新版
+const APP_VER = "40";      // 設定頁會顯示，用來確認手機上裝的是不是最新版
 const TOP_VIEWS = ["setup", "auth", "home"];
 try { if (history.state?.sub) history.replaceState(null, ""); } catch {}
 // 原生 App：由 Capacitor 的 backButton 事件交給 systemBack() 決定（關選單／關浮層／回上一頁，只有在首頁才退出）
@@ -114,7 +114,7 @@ document.addEventListener("visibilitychange", updateLock);
 /* ------------------------------------------------------------------ */
 /* 本機設定（語音每台裝置不同，所以不放雲端）                              */
 /* ------------------------------------------------------------------ */
-const DEFAULTS = { lang: "en-US", readZh: true, sleepMin: 0, rate: 0.95, autoplay: true, shuffle: true, autoNext: false, loop: false, fx: true, vmode: "quiz", vauto: false };
+const DEFAULTS = { lang: "en-US", readZh: true, sleepMin: 0, batch: 0, rate: 0.95, autoplay: true, shuffle: true, autoNext: false, loop: false, fx: true, vmode: "quiz", vauto: false };
 function readSettings() {
   try { return { ...DEFAULTS, ...JSON.parse(localStorage.getItem("wc.settings") || "{}") }; }
   catch { return { ...DEFAULTS }; }
@@ -644,8 +644,22 @@ function init() {
   }
 
   // 重新排出佇列（回傳是否有卡可看）
+  // 每輪只播前 N 張（還沒會的、依順序）：小範圍反覆聽；N = 0 代表全部
+  const limited = (list) => {
+    const n = settings.batch || 0;
+    return n > 0 ? list.slice().sort((a, b) => (a.createdAt || 0) - (b.createdAt || 0)).slice(0, n) : list;
+  };
+  // 標了「會了」／刪除後，從同一個範圍補下一張進來，讓這一輪維持 N 張
+  function refillQueue() {
+    const n = settings.batch || 0;
+    if (n <= 0 || state.queue.length >= n) return;
+    const have = new Set(state.queue);
+    const ids = scopeList().filter(inMode).filter((c) => !have.has(c.id))
+      .sort((a, b) => (a.createdAt || 0) - (b.createdAt || 0)).slice(0, n - state.queue.length).map((c) => c.id);
+    state.queue.push(...(settings.shuffle ? shuffle(ids) : ids));
+  }
   function buildQueue() {
-    let list = scopeList().filter(inMode);
+    let list = limited(scopeList().filter(inMode));
     if (!list.length) return false;
     list = settings.shuffle ? shuffle(list) : list.sort((a, b) => (a.createdAt || 0) - (b.createdAt || 0));
     state.queue = list.map((c) => c.id);
@@ -836,7 +850,7 @@ function init() {
     } else {
       state.stats.next++;
     }
-    if (kind === "keep" || kind === "del") state.queue.splice(state.idx, 1);   // 標「會了」／刪除：從這一輪消失，總數跟著減少
+    if (kind === "keep" || kind === "del") { state.queue.splice(state.idx, 1); refillQueue(); }   // 標「會了」／刪除：從這一輪消失（有設每輪張數就補下一張）
     else state.idx++;
     showCard();
   }
@@ -920,6 +934,7 @@ function init() {
     NSpeech.addListener("state", (e) => { if (e && e.active === false) nativeTurnOff(); });
     document.addEventListener("visibilitychange", () => { if (!document.hidden) syncNative(); });
   }
+  let poolDirty = false;
   function startNativeSession(c) {
     speakToken++;                                   // 取消網頁端進行中的朗讀
     const ids = state.queue.slice(state.idx).filter((id) => { const x = state.cards.get(id); return x && inMode(x); });
@@ -929,10 +944,10 @@ function init() {
       readZh: !!settings.readZh, loop: !!settings.loop, shuffle: !!settings.shuffle, remove: nativeRemove, sleepAt,
     };
     nativeRemove = null;
-    const pool = () => scopeList().filter(inMode)
+    const pool = () => limited(scopeList().filter(inMode))
       .sort((a, b) => (a.createdAt || 0) - (b.createdAt || 0))
       .map((x) => ({ id: x.id, w: x.word || "", n: x.note || "", e: x.example || "", t: x.trans || "" }));
-    if (!nativeActive) payload.cards = pool();
+    if (!nativeActive || settings.batch > 0 || poolDirty) { payload.cards = pool(); poolDirty = false; }   // 有限制張數時每次重送，新補進來的卡才會被背景服務播到
     NSpeech.startSession(payload).then(() => { nativeActive = true; }).catch((err) => {
       if (String((err && err.message) || err).includes("NEED_CARDS")) {
         payload.cards = pool();
@@ -1160,7 +1175,18 @@ function init() {
       ? (qsSleep ? `${qsSleep} 分鐘・按完成後從現在起算` : "關閉・按完成後生效")
       : cur ? (remain ? (sleepAt && Date.now() >= sleepAt ? "唸完這張就停止" : `剩約 ${remain} 分鐘`) : `${cur} 分鐘`) : "關閉";
   }
+  let qsBatch = 0;
+  const qsBatchRead = () => Math.min(500, Math.max(0, parseInt($("#qs-batch").value, 10) || 0));
+  function renderQsBatch() {
+    const n = qsBatchRead();
+    $$("#qs-batch-chips button").forEach((b) => b.setAttribute("aria-pressed", String(+b.dataset.n === n)));
+    $("#qs-batch-out").textContent = n ? `${n} 張` : "全部";
+  }
+  $$("#qs-batch-chips button").forEach((b) => b.onclick = () => { $("#qs-batch").value = +b.dataset.n || ""; renderQsBatch(); });
+  $("#qs-batch").addEventListener("input", renderQsBatch);
   function renderQs() {
+    $("#qs-batch").value = settings.batch || "";
+    renderQsBatch();
     renderQsSleep();
     $("#qs-readzh").checked = !!settings.readZh;
     $("#qs-shuffle").checked = !!settings.shuffle;
@@ -1227,11 +1253,13 @@ function init() {
     if (p.on && p.from > state.cards.size) { toast(`起始序號超過總數（共 ${state.cards.size}）`); return; }
     const changed = JSON.stringify(p) !== JSON.stringify(state.prefs.word);
     qsEl.hidden = true;
+    let batchChanged = false;
+    if (apply && qsBatchRead() !== (settings.batch || 0)) { settings.batch = qsBatchRead(); saveSettings(); batchChanged = true; poolDirty = true; }
     if (apply && qsSleep !== (settings.sleepMin || 0)) { settings.sleepMin = qsSleep; saveSettings(); applySleep(); }   // 改了分鐘數：馬上從現在重新倒數
     if (changed) savePref("word", p);
     if (current !== "study") { renderHome(); if (changed && current === "done") { startStudy(state.mode); } return; }
     editing = false;
-    if (changed) {                              // 範圍改了：重新排這一輪
+    if (changed || batchChanged) {              // 範圍或每輪張數改了：重新排這一輪
       stopSpeech();
       if (!buildQueue()) { toast("這個範圍裡沒有可看的字卡"); show("home"); renderHome(); return; }
       showCard();

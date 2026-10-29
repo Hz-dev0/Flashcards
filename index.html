@@ -394,6 +394,20 @@ pragmatic  We need a pragmatic solution.
         <label class="set-row"><span>朗讀時唸出中文</span><input id="qs-readzh" class="sw" type="checkbox"></label>
         <label class="set-row"><span>隨機順序</span><input id="qs-shuffle" class="sw" type="checkbox"></label>
       </div>
+      <div class="set-card" id="qs-batch-card">
+        <div class="set-row col">
+          <div class="set-top"><span>每輪只播幾張</span><output id="qs-batch-out"></output></div>
+          <div class="qs-chips" id="qs-batch-chips">
+            <button type="button" data-n="0">全部</button>
+            <button type="button" data-n="5">5</button>
+            <button type="button" data-n="10">10</button>
+            <button type="button" data-n="20">20</button>
+            <button type="button" data-n="30">30</button>
+          </div>
+          <label class="field"><span>自訂張數</span><input id="qs-batch" type="number" inputmode="numeric" min="0" step="1" placeholder="全部"></label>
+          <p class="muted small">從還沒會的字依序取前幾張，小範圍反覆播；標了「會了」會自動補下一張進來。按完成後生效。</p>
+        </div>
+      </div>
       <div class="set-card" id="qs-rg-card">
         <label class="set-row"><span>只複習指定範圍</span><input id="qs-rg-on" class="sw" type="checkbox"></label>
         <div class="set-row col">
@@ -421,6 +435,6 @@ pragmatic  We need a pragmatic solution.
   </div>
 
   <script src="pwa.js" defer></script>
-  <script type="module" src="app.js?v=39"></script>
+  <script type="module" src="app.js?v=40"></script>
 </body>
 </html>
