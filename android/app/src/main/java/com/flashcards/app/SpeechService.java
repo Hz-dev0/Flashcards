@@ -50,7 +50,7 @@ public class SpeechService extends Service {
         float rate = 1f;
         boolean readZh = true, loop = false, shuffle = false, autoZh = true;
         String lang = "en-US";
-        long sleepAt = 0;               // 睡眠模式停止時間（epoch 毫秒），0 = 沒啟用
+        long sleepAt = 0;               // 睡眠模式：到這個時間（epoch 毫秒）後，唸完當下這張就停止；0 = 不啟用
     }
 
     interface Listener {
@@ -67,6 +67,7 @@ public class SpeechService extends Service {
 
     static void setListener(Listener l) { listener = l; }
     static boolean isActive() { return instance != null; }
+    static void setSleepAt(long t) { SpeechService s = instance; if (s != null) s.sleepAt = t; }
 
     static void startSession(Context ctx, Session s) {
         pending = s;
@@ -90,7 +91,7 @@ public class SpeechService extends Service {
     private int idx = 0;
     private boolean active = false, paused = false, pausedByFocus = false;
     private boolean loop, shuffle, readZh;
-    private long sleepAt = 0;
+    private volatile long sleepAt = 0;
     private int gen = 0;
 
     private AudioManager am;
@@ -199,23 +200,20 @@ public class SpeechService extends Service {
         if (readZh && !isEmpty(c.n)) parts.add(c.n);
         if (!isEmpty(c.e)) parts.add(c.e);
         if (readZh && !isEmpty(c.t)) parts.add(c.t);
-        if (parts.isEmpty()) {
-            main.postDelayed(() -> {
-                if (sleepAt > 0 && System.currentTimeMillis() >= sleepAt) stopSession(true); else advance();
-            }, 300);
-            return;
-        }
+        if (parts.isEmpty()) { main.postDelayed(() -> { if (sleepDue()) stopSession(true); else advance(); }, 300); return; }
 
         final int my = ++gen;
         engine.speak(parts, completed -> {
             if (!completed || my != gen || paused) return;      // 被暫停、跳下一張或重新開始打斷
             main.postDelayed(() -> {
                 if (my != gen || paused || !active) return;
-                if (sleepAt > 0 && System.currentTimeMillis() >= sleepAt) { stopSession(true); return; }   // 睡眠時間到：唸完這張就停
+                if (sleepDue()) { stopSession(true); return; }       // 睡眠模式時間到：這張唸完就停
                 if (loop) playCurrent(); else advance();
             }, loop ? 900 : 1200);
         });
     }
+
+    private boolean sleepDue() { return sleepAt > 0 && System.currentTimeMillis() >= sleepAt; }
 
     private void advance() {
         if (!active || paused) return;

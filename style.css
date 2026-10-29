@@ -419,3 +419,7 @@ textarea.bulk { min-height: 60vh; width: 100%; font-family: ui-monospace, "Casca
 .qs-units::-webkit-scrollbar { display: none; }
 .qs-units button { flex: none; max-width: 12em; height: 34px; padding: 0 12px; border-radius: 17px; border: 1px solid var(--line); background: none; color: var(--fg); font: inherit; font-size: 13px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; cursor: pointer; }
 .qs-units button[aria-pressed="true"] { background: var(--accent); color: var(--accent-fg); border-color: var(--accent); }
+
+/* 睡眠模式倒數 */
+.sleep-pill { align-self: center; height: 30px; margin: 0 auto; padding: 0 14px; border-radius: 15px; border: 1px solid var(--line); background: none; color: var(--muted); font: inherit; font-size: 13px; font-variant-numeric: tabular-nums; cursor: pointer; }
+.sleep-pill[hidden] { display: none; }

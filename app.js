@@ -690,6 +690,26 @@ function init() {
     if (!(settings.sleepMin > 0)) { sleepAt = 0; return; }
     if (!sleepAt) { sleepAt = Date.now() + settings.sleepMin * 60000; toast(`睡眠模式：${settings.sleepMin} 分鐘後停止`); }
   }
+  // 選了睡眠時間就立刻生效：連播中從「現在」開始倒數，連播沒開則等開始連播時才起算
+  function applySleep() {
+    sleepAt = 0;
+    if (settings.autoNext && settings.sleepMin > 0) {
+      sleepAt = Date.now() + settings.sleepMin * 60000;
+      toast(`睡眠模式：${settings.sleepMin} 分鐘後停止`);
+    }
+    if (NATIVE && nativeActive) NSpeech.setSleep({ sleepAt }).catch(() => {});
+    renderSleepPill();
+  }
+  // 學習畫面上方的倒數：看得到還剩多久，點一下開設定可改時間或關閉
+  function renderSleepPill() {
+    const el = $("#st-sleep"), on = !!sleepAt && settings.autoNext && current === "study";
+    el.hidden = !on;
+    if (!on) return;
+    const left = sleepAt - Date.now();
+    el.textContent = left <= 0 ? "🌙 唸完這張就停止" : `🌙 ${Math.floor(left / 60000)}:${String(Math.floor(left / 1000) % 60).padStart(2, "0")} 後停止`;
+  }
+  setInterval(renderSleepPill, 1000);
+  $("#st-sleep").onclick = () => openQs();
   function sleepStop() {
     sleepAt = 0;
     settings.autoNext = false; saveSettings(); renderMode(); updateLock();
@@ -897,7 +917,7 @@ function init() {
     if (!ids.includes(c.id)) ids.unshift(c.id);
     const payload = {
       ids, rate: settings.rate, lang: settings.lang, autoZh: autoZh(),
-      readZh: !!settings.readZh, loop: !!settings.loop, shuffle: !!settings.shuffle, remove: nativeRemove, sleepAt: sleepAt || 0,
+      readZh: !!settings.readZh, loop: !!settings.loop, shuffle: !!settings.shuffle, remove: nativeRemove, sleepAt,
     };
     nativeRemove = null;
     const pool = () => scopeList().filter(inMode)
@@ -922,6 +942,7 @@ function init() {
     renderMode();
     updateLock();
     if (settings.autoNext) playCard(); else { sleepAt = 0; clearAdv(); if (NATIVE) stopSpeech(); }
+    renderSleepPill();
   };
 
   /* ---------------- 練習範圍（依序號；設定存雲端） ---------------- */
@@ -1120,12 +1141,10 @@ function init() {
 
   /* ---------------- 長按「連播」：快速設定（睡眠模式／唸出中文／隨機順序） ---------------- */
   const qsEl = $("#qs");
-  let qsSleep = 0;                 // 快速設定裡暫選的睡眠分鐘數（按完成才寫入 settings）
   function renderQs() {
-    $$("#qs-chips button").forEach((b) => b.setAttribute("aria-pressed", String(+b.dataset.m === qsSleep)));
+    $$("#qs-chips button").forEach((b) => b.setAttribute("aria-pressed", String(+b.dataset.m === (settings.sleepMin || 0))));
     const remain = sleepAt ? Math.max(1, Math.ceil((sleepAt - Date.now()) / 60000)) : 0;
-    $("#qs-sleep-out").textContent = qsSleep !== (settings.sleepMin || 0) ? (qsSleep ? `${qsSleep} 分鐘（按完成套用）` : "關閉（按完成套用）")
-      : settings.sleepMin ? (remain ? `剩約 ${remain} 分鐘` : `${settings.sleepMin} 分鐘`) : "關閉";
+    $("#qs-sleep-out").textContent = settings.sleepMin ? (remain ? (sleepAt && Date.now() >= sleepAt ? "唸完這張就停止" : `剩約 ${remain} 分鐘`) : `${settings.sleepMin} 分鐘`) : "關閉";
     $("#qs-readzh").checked = !!settings.readZh;
     $("#qs-shuffle").checked = !!settings.shuffle;
     const p = state.prefs.word;
@@ -1181,22 +1200,15 @@ function init() {
   function openQs() {
     if (editing || !qsEl.hidden || !["study", "home", "done"].includes(current)) return;
     if (current === "study") { editing = true; stopSpeech(); }   // 調整期間暫停連播／循環
-    qsSleep = settings.sleepMin || 0;
     renderQs();
     qsEl.hidden = false;
   }
-  function closeQs(apply) {
+  function closeQs() {
     if (qsEl.hidden) return;
     const p = qsRead();
     if (p.on && p.from > state.cards.size) { toast(`起始序號超過總數（共 ${state.cards.size}）`); return; }
     const changed = JSON.stringify(p) !== JSON.stringify(state.prefs.word);
     qsEl.hidden = true;
-    if (apply === true && qsSleep !== (settings.sleepMin || 0)) {   // 按了「完成」且時間有改：立刻套用，從現在重新倒數
-      settings.sleepMin = qsSleep; saveSettings();
-      sleepAt = 0;
-      if (current === "study" && settings.autoNext) armSleep();
-      else if (qsSleep > 0 && current === "study") toast(`睡眠模式：連播開始後 ${qsSleep} 分鐘停止`);
-    }
     if (changed) savePref("word", p);
     if (current !== "study") { renderHome(); if (changed && current === "done") { startStudy(state.mode); } return; }
     editing = false;
@@ -1210,11 +1222,12 @@ function init() {
     if (c) setTrans(c, !!settings.readZh);     // 「唸出中文」改了，中文例句的顯示方式跟著變
     if (settings.autoNext) playCard();         // 睡眠模式從現在重新起算
   }
-  // 睡眠時間只先暫存，按「完成」才套用；沒按完成（點外面／Esc）就維持原本的計時
-  $$("#qs-chips button").forEach((b) => b.onclick = () => { qsSleep = +b.dataset.m; renderQs(); });
+  $$("#qs-chips button").forEach((b) => b.onclick = () => {
+    settings.sleepMin = +b.dataset.m; saveSettings(); applySleep(); renderQs();
+  });
   $("#qs-readzh").onchange = (e) => { settings.readZh = e.target.checked; saveSettings(); };
   $("#qs-shuffle").onchange = (e) => { settings.shuffle = e.target.checked; saveSettings(); };
-  $("#qs-ok").onclick = () => closeQs(true);
+  $("#qs-ok").onclick = closeQs;
   qsEl.addEventListener("pointerdown", (e) => { if (e.target === qsEl) closeQs(); });
   document.addEventListener("keydown", (e) => { if (!qsEl.hidden && e.key === "Escape") closeQs(); });
 
@@ -2044,7 +2057,7 @@ function init() {
   }
   $("#s-lang").onchange = (e) => { settings.lang = e.target.value; saveSettings(); };
   $("#s-readzh").onchange = (e) => { settings.readZh = e.target.checked; saveSettings(); };
-  $("#s-sleep").onchange = (e) => { settings.sleepMin = +e.target.value || 0; sleepAt = 0; saveSettings(); };   // 改設定後，下次連播起重新計時
+  $("#s-sleep").onchange = (e) => { settings.sleepMin = +e.target.value || 0; saveSettings(); applySleep(); };
   $("#s-rate").oninput = (e) => {
     settings.rate = parseFloat(e.target.value);
     $("#s-rate-out").textContent = settings.rate.toFixed(2) + "×";

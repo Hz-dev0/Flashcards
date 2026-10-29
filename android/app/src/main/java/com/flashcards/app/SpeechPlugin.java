@@ -94,11 +94,20 @@ public class SpeechPlugin extends Plugin implements SpeechService.Listener {
         s.shuffle = call.getBoolean("shuffle", false);
         s.autoZh = call.getBoolean("autoZh", true);
         s.lang = call.getString("lang", "en-US");
-        s.sleepAt = call.getData().optLong("sleepAt", 0L);
+        Double sl = call.getDouble("sleepAt", 0.0);          // 睡眠模式的停止時間（epoch 毫秒），0 = 沒啟用
+        s.sleepAt = sl == null ? 0L : sl.longValue();
 
         engine.stop();
         askNotificationPermission();
         SpeechService.startSession(getContext(), s);
+        call.resolve();
+    }
+
+    /** 連播進行中改睡眠時間：不中斷播放，只更新停止時間 */
+    @PluginMethod
+    public void setSleep(PluginCall call) {
+        Double sl = call.getDouble("sleepAt", 0.0);
+        SpeechService.setSleepAt(sl == null ? 0L : sl.longValue());
         call.resolve();
     }
 
