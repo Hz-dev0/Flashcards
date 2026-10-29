@@ -14,7 +14,7 @@
   <link rel="manifest" href="manifest.json">
   <link rel="icon" type="image/png" href="icons/icon-192.png">
   <link rel="apple-touch-icon" href="icons/icon-192.png">
-  <link rel="stylesheet" href="style.css?v=28">
+  <link rel="stylesheet" href="style.css?v=29">
 </head>
 <body>
   <!-- icon sprite -->
@@ -56,15 +56,20 @@
       <button class="icon" id="h-settings" aria-label="設定"><svg class="ic"><use href="#i-sliders"/></svg></button>
     </header>
     <div class="home">
-      <button class="row" id="h-learn" disabled>
-        <span class="row-title">學習單字</span>
+      <button class="row hero" id="h-learn" disabled>
+        <span class="hero-k" id="h-unit-k"></span>
+        <span class="row-title" id="h-unit-t">學習單字</span>
+        <span class="bar-track" id="h-track" hidden><i id="h-bar"></i></span>
         <span class="row-sub"><b id="h-new">0</b> 張待學</span>
+      </button>
+      <button class="row" id="h-units" hidden>
+        <span class="row-title">單元一覽</span>
+        <span class="row-sub" id="h-units-sub"></span>
       </button>
       <button class="row" id="h-review" disabled>
         <span class="row-title">複習</span>
         <span class="row-sub"><b id="h-known">0</b> 張已會</span>
       </button>
-      <p id="h-unit" class="muted small center" hidden></p>
       <button class="row" id="h-verb">
         <span class="row-title">動詞三態</span>
         <span class="row-sub"><b id="h-verbs">0</b> 個動詞</span>
@@ -73,6 +78,16 @@
     <button class="btn" id="h-range" hidden></button>
     <p id="h-empty" class="muted center" hidden></p>
     <button class="btn" id="h-empty-import" hidden>匯入字卡</button>
+  </section>
+
+  <!-- 單元一覽 -->
+  <section id="v-units" class="view" hidden>
+    <header class="bar">
+      <button class="icon" data-back aria-label="返回"><svg class="ic"><use href="#i-back"/></svg></button>
+      <span class="brand">單元</span>
+      <span class="muted small" id="u-sub"></span>
+    </header>
+    <div id="u-list" class="u-list"></div>
   </section>
 
   <!-- 學習 / 複習 -->
@@ -280,8 +295,9 @@ pragmatic  We need a pragmatic solution.
     <h2 class="set-h">練習</h2>
     <div class="set-card">
       <label class="set-row"><span>隨機順序</span><input id="s-shuffle" class="sw" type="checkbox"></label>
-      <label class="set-row"><span>單元大小<small>內建字庫每幾張一個單元；前一個單元全部「會了」才解鎖下一個</small></span>
+      <label class="set-row"><span>單元大小<small>依 words.txt 的分類標題分單元（沒有標題就每 100 張一組）；前一個單元全部「會了」才解鎖下一個</small></span>
         <select id="s-unit">
+          <option value="-1">依字庫分類</option>
           <option value="0">不分單元</option>
           <option value="30">30 張</option>
           <option value="50">50 張</option>
@@ -377,7 +393,7 @@ pragmatic  We need a pragmatic solution.
         <label class="set-row"><span>朗讀時唸出中文</span><input id="qs-readzh" class="sw" type="checkbox"></label>
         <label class="set-row"><span>隨機順序</span><input id="qs-shuffle" class="sw" type="checkbox"></label>
       </div>
-      <div class="set-card">
+      <div class="set-card" id="qs-rg-card">
         <label class="set-row"><span>只練習指定範圍</span><input id="qs-rg-on" class="sw" type="checkbox"></label>
         <div class="set-row col">
           <div class="rg-fields">
@@ -402,6 +418,6 @@ pragmatic  We need a pragmatic solution.
   </div>
 
   <script src="pwa.js" defer></script>
-  <script type="module" src="app.js?v=31"></script>
+  <script type="module" src="app.js?v=32"></script>
 </body>
 </html>

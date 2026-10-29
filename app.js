@@ -17,7 +17,7 @@ import { VERB_SEED } from "./verbs-seed.js?v=1";
 const $ = (s) => document.querySelector(s);
 const $$ = (s) => [...document.querySelectorAll(s)];
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
-const VIEWS = ["setup", "auth", "home", "study", "verb", "vmanage", "manage", "bulk", "done", "import", "settings"];
+const VIEWS = ["setup", "auth", "home", "units", "study", "verb", "vmanage", "manage", "bulk", "done", "import", "settings"];
 let current = null;
 
 // 手機系統返回鍵：在字卡／管理等子頁按返回，回到上一層（首頁）而不是退出 APP。
@@ -280,7 +280,7 @@ function init() {
   }
 
   const state = {
-    uid: null, cards: new Map(), cloud: new Map(), base: new Map(), baseKeys: new Map(), prog: freshProg(), unit: 100, units: [], unlockedN: 0, verbs: new Map(), gone: new Set(), prefs: freshPrefs(), unsub: null, ready: false, pending: false,
+    uid: null, cards: new Map(), cloud: new Map(), base: new Map(), baseKeys: new Map(), prog: freshProg(), unit: -1, units: [], unlockedN: 0, cats: [], scope: null, fromUnits: false, verbs: new Map(), gone: new Set(), prefs: freshPrefs(), unsub: null, ready: false, pending: false,
     mode: "new", queue: [], idx: 0, current: null,
     stats: { keep: 0, del: 0, next: 0 },
   };
@@ -296,17 +296,26 @@ function init() {
     try {
       const r = await fetch("words.txt");
       if (!r.ok) return;
-      const { rows } = parseWordsFile(await r.text());
+      const text = await r.text();
+      const { rows } = parseWordsFile(text);
+      // 分類標題：「# ===== 1 招聘與求職 =====」或「## 招聘與求職」；標題之後的字卡都屬於它
+      const heads = [];
+      text.replace(/\r/g, "").split("\n").forEach((ln, i) => {
+        const m = /^\s*#+\s*=+\s*(?:\d+[\s.、．]+)?([^=\s].*?)\s*=+\s*$/.exec(ln) || /^\s*##\s+(.+?)\s*$/.exec(ln);
+        if (m) heads.push({ line: i + 1, title: m[1].trim() });
+      });
       const base = new Map(), keys = new Map();
+      let hi = -1;
       for (const r of rows) {
+        while (hi + 1 < heads.length && heads[hi + 1].line < r.line) hi++;
         const key = cardKey(r.word, r.example);
         if (keys.has(key)) continue;                       // 同樣的單字＋例句只留第一張
         let id = baseCardId(r.word, r.example);
         while (base.has(id)) id += "x";                    // 雜湊撞號的保險
-        const c = { id, base: true, word: r.word, example: r.example, note: r.note, trans: r.trans || "", createdAt: base.size + 1 };
+        const c = { id, base: true, word: r.word, example: r.example, note: r.note, trans: r.trans || "", createdAt: base.size + 1, cat: hi };
         base.set(id, c); keys.set(key, c);
       }
-      state.base = base; state.baseKeys = keys;
+      state.base = base; state.baseKeys = keys; state.cats = heads.map((h) => h.title);
       if (state.uid) { mergeCards(); renderHome(); }
     } catch (e) { console.warn("讀不到 words.txt", e); }
   }
@@ -327,23 +336,33 @@ function init() {
     state.cards = out;
     applyUnits();
   }
-  // 單元：內建字庫依 words.txt 的順序每 state.unit 張一個單元；前一個單元全部「會了」才解鎖下一個。
-  // 解鎖狀態不另外存，直接由進度（已會的編號）算出來，所以多台裝置一定一致。自己新增的卡不受限制。
+  // 單元：words.txt 裡的「# ===== 1 招聘與求職 =====」就是一個單元（沒有分類標題就每 100 張一組，或在設定指定張數）。
+  // 前一個單元全部「會了」才解鎖下一個。解鎖狀態不另外存，直接由進度（已會的編號）算出來，所以多台裝置一定一致。
+  // 自己新增的卡不受限制。
   function applyUnits() {
-    const size = state.unit, list = [...state.cards.values()].filter((c) => c.base), units = [];
-    if (size > 0) {
+    const mode = state.unit, list = [...state.cards.values()].filter((c) => c.base), units = [];
+    const byCat = mode === -1 && state.cats.length > 0;
+    const size = mode > 0 ? mode : mode === -1 && !byCat ? 100 : 0;
+    if (mode !== 0 && list.length) {
+      const groups = [];
+      list.forEach((c, i) => {
+        const g = groups[groups.length - 1];
+        const same = byCat ? g && g.cat === c.cat : g && g.cards.length < size;
+        if (same) g.cards.push(c);
+        else groups.push({ cat: c.cat, cards: [c], title: byCat ? (c.cat >= 0 ? state.cats[c.cat] : "未分類") : `第 ${groups.length + 1} 組` });
+      });
       let open = true;
-      for (let i = 0; i < list.length; i += size) {
-        const chunk = list.slice(i, i + size);
-        const left = chunk.filter((c) => c.status !== "known").length;
-        chunk.forEach((c) => { c.unit = units.length + 1; c.locked = !open; });
-        units.push({ n: units.length + 1, total: chunk.length, left, locked: !open });
+      for (const g of groups) {
+        const left = g.cards.filter((c) => c.status !== "known").length;
+        const n = units.length + 1;
+        g.cards.forEach((c) => { c.unit = n; c.locked = !open; });
+        units.push({ n, title: g.title, total: g.cards.length, left, locked: !open });
         if (left > 0) open = false;
       }
     } else list.forEach((c) => { c.unit = 0; c.locked = false; });
     state.units = units;
     const unlocked = units.filter((u) => !u.locked).length;
-    if (state.unlockedN && unlocked > state.unlockedN) toast(`🎉 解鎖單元 ${unlocked}`);
+    if (state.unlockedN && unlocked > state.unlockedN) toast(`🎉 解鎖單元 ${unlocked}：${units[unlocked - 1].title}`);
     state.unlockedN = unlocked;
   }
   function saveUnit(n) {
@@ -463,7 +482,7 @@ function init() {
   }
   function detach() {
     if (state.unsub) { state.unsub(); state.unsub = null; }
-    state.uid = null; state.cards = new Map(); state.cloud.clear(); state.prog = freshProg(); state.units = []; state.unlockedN = 0; state.verbs.clear(); state.gone = new Set(); state.prefs = freshPrefs(); state.ready = false;
+    state.uid = null; state.cards = new Map(); state.cloud.clear(); state.prog = freshProg(); state.units = []; state.unlockedN = 0; state.scope = null; state.verbs.clear(); state.gone = new Set(); state.prefs = freshPrefs(); state.ready = false;
   }
 
   /* ---------------- 首頁 ---------------- */
@@ -483,19 +502,24 @@ function init() {
     rb.hidden = !(state.prefs.word.on && state.cards.size);
     rb.textContent = `練習範圍：${rangeText("word", state.cards.size)}（全部 ${state.cards.size} 張）・調整`;
     const cur = state.units.find((u) => u.left > 0);
-    const ub = $("#h-unit");
-    ub.hidden = !state.units.length;
-    ub.textContent = cur ? `單元 ${cur.n} / ${state.units.length}・本單元還剩 ${cur.left} 張` : `🎉 ${state.units.length} 個單元全部完成`;
-    $("#h-new").textContent = n;
+    const hero = state.units.length > 0;
+    $("#h-unit-k").textContent = hero ? (cur ? `繼續學習 ・ 單元 ${cur.n} / ${state.units.length}` : "學習") : "";
+    $("#h-unit-t").textContent = hero ? (cur ? cur.title : "🎉 全部單元完成") : "學習單字";
+    $("#h-track").hidden = !hero;
+    $("#h-bar").style.width = hero ? (cur ? `${((cur.total - cur.left) / cur.total) * 100}%` : "100%") : "0";
+    $("#h-units").hidden = !hero;
+    $("#h-units-sub").textContent = `${state.units.filter((u) => !u.left).length} / ${state.units.length} 完成`;
+    $("#h-new").textContent = hero ? (cur ? cur.left : 0) : n;
     $("#h-known").textContent = k;
     $("#h-verbs").textContent = state.verbs.size;
-    $("#h-learn").disabled = n === 0;
+    $("#h-learn").disabled = hero ? !cur : n === 0;
     $("#h-review").disabled = k === 0;
     const empty = $("#h-empty");
     empty.hidden = state.cards.size > 0;
     $("#h-empty-import").hidden = !state.ready || state.cards.size > 0;
     empty.textContent = state.ready ? "還沒有字卡，先匯入一批吧。" : "載入中…";
     renderSync();
+    if (current === "units") renderUnits();
     if (current === "manage") refreshManage();
     if (current === "verb") vqRefresh();
     if (current === "vmanage") vmRender();
@@ -511,7 +535,44 @@ function init() {
   window.addEventListener("online", renderSync);
   window.addEventListener("offline", renderSync);
   $("#h-range").onclick = () => openQs();
-  $("#h-learn").onclick = () => startStudy("new");
+  $("#h-learn").onclick = () => { const cur = state.units.find((u) => u.left > 0); if (cur) startStudy("new", cur.n); else startStudy("new"); };
+  $("#h-units").onclick = () => { show("units"); renderUnits(); $("#u-list .cur")?.scrollIntoView({ block: "center" }); };
+  // 單元一覽：點單元開始學；已完成的單元點進去是複習；鎖住的提示先完成哪一個
+  function renderUnits() {
+    const box = $("#u-list"), keep = box.parentElement.scrollTop;
+    $("#u-sub").textContent = `${state.units.filter((u) => !u.left).length} / ${state.units.length} 完成`;
+    const curN = state.units.find((u) => u.left > 0)?.n;
+    box.textContent = "";
+    for (const u of state.units) {
+      const known = u.total - u.left;
+      const row = document.createElement("div");
+      row.className = "unit" + (u.locked ? " locked" : "") + (!u.left ? " done" : "") + (u.n === curN ? " cur" : "");
+      row.dataset.n = u.n;
+      const no = document.createElement("span"); no.className = "u-no"; no.textContent = u.locked ? "🔒" : !u.left ? "✓" : u.n;
+      const main = document.createElement("span"); main.className = "u-main";
+      const t = document.createElement("b"); t.textContent = u.title;
+      const meta = document.createElement("span"); meta.className = "u-meta";
+      meta.textContent = u.locked ? `完成單元 ${u.n - 1} 後解鎖` : `已會 ${known} / ${u.total}`;
+      const tr = document.createElement("span"); tr.className = "bar-track";
+      const bar = document.createElement("i"); bar.style.width = `${(known / u.total) * 100}%`; tr.append(bar);
+      main.append(t, meta, tr);
+      row.append(no, main);
+      if (!u.locked && known > 0 && u.left > 0) {
+        const rv = document.createElement("button"); rv.type = "button"; rv.className = "u-rv"; rv.dataset.rv = "1"; rv.textContent = "複習";
+        row.append(rv);
+      }
+      box.append(row);
+    }
+    box.parentElement.scrollTop = keep;
+  }
+  $("#u-list").addEventListener("click", (e) => {
+    const row = e.target.closest(".unit");
+    if (!row) return;
+    const u = state.units[+row.dataset.n - 1];
+    if (!u) return;
+    if (u.locked) { toast(`先把單元 ${u.n - 1} 全部標成「會了」才能解鎖`); return; }
+    if (e.target.closest("[data-rv]") || !u.left) startStudy("known", u.n, true); else startStudy("new", u.n, true);
+  });
   $("#h-review").onclick = () => startStudy("known");
   $("#h-verb").onclick = () => { show("verb"); vqRefresh(); };
   const openManage = () => { stopSpeech(); mg.q = ""; $("#m-q").value = ""; mg.limit = PAGE; show("manage"); renderManage(); };
@@ -529,14 +590,21 @@ function init() {
       if (settings.autoNext) playCard();
       return;
     }
+    if ((current === "study" || current === "done") && state.fromUnits) { stopSpeech(); state.fromUnits = false; show("units"); renderUnits(); return; }
     stopSpeech(); clearTimeout(vq.timer); show("home"); renderHome();
   }));
 
   /* ---------------- 學習 / 複習 ---------------- */
   const inMode = (c) => (state.mode === "known" ? c.status === "known" : c.status !== "known" && !c.locked);
 
-  function startStudy(mode) {
-    state.mode = mode;
+  // 目前學習的範圍：指定單元（scope）優先，否則看「練習範圍」
+  function scopeList() {
+    const all = [...state.cards.values()];
+    return state.scope ? all.filter((c) => c.unit === state.scope) : inRange("word", all);
+  }
+
+  function startStudy(mode, scope = null, fromUnits = false) {
+    state.mode = mode; state.scope = scope; state.fromUnits = fromUnits;
     if (!buildQueue()) {
       show("home"); renderHome();
       const p = state.prefs.word;
@@ -553,7 +621,7 @@ function init() {
 
   // 重新排出佇列（回傳是否有卡可看）
   function buildQueue() {
-    let list = inRange("word", [...state.cards.values()]).filter(inMode);
+    let list = scopeList().filter(inMode);
     if (!list.length) return false;
     list = settings.shuffle ? shuffle(list) : list.sort((a, b) => (a.createdAt || 0) - (b.createdAt || 0));
     state.queue = list.map((c) => c.id);
@@ -647,6 +715,7 @@ function init() {
     if (!c) return finish();
     renderCard(c);
     $("#st-progress").textContent = `${state.idx + 1} / ${state.queue.length}` + (state.prefs.word.on ? ` ・ 範圍 ${rangeText("word", state.cards.size).replace(/ /g, "")}` : "");
+    if (state.scope) $("#st-progress").textContent = `單元 ${state.scope} ・ ${state.idx + 1} / ${state.queue.length}`;
     $("#a-keep").textContent = state.mode === "known" ? "還不熟" : "會了";
     const stage = $("#stage");
     stage.classList.remove("swap"); void stage.offsetWidth; stage.classList.add("swap");
@@ -665,15 +734,17 @@ function init() {
     $("#dn-title").textContent = known ? "複習完了" : "這一輪看完了";
     $("#dn-sub").textContent = `${known ? "還不熟" : "會了"} ${s.keep} · 刪除 ${s.del} · 略過 ${s.next}`;
     applyUnits();
-    const left = inRange("word", [...state.cards.values()]).some(inMode);   // 範圍內還有沒有卡（不是全部）
+    const left = scopeList().some(inMode);   // 這個單元／範圍內還有沒有卡（不是全部）
     $("#dn-again").hidden = !left;
-    const nx = nextChunk();
-    $("#dn-next").hidden = left || !nx;
-    if (nx) $("#dn-next").textContent = `下一段（第 ${nx.from} ～ ${Math.min(nx.to, state.cards.size)}）`;
-    $("#dn-range").hidden = !state.prefs.word.on;
+    const nt = nextTarget();
+    $("#dn-next").hidden = left || !nt;
+    if (nt) $("#dn-next").textContent = nt.unit ? `下一單元：${nt.unit.title}` : `下一段（第 ${nt.chunk.from} ～ ${Math.min(nt.chunk.to, state.cards.size)}）`;
+    $("#dn-range").hidden = !state.prefs.word.on || !!state.scope;
+    $("#dn-home").textContent = state.fromUnits ? "回單元一覽" : "回首頁";
+    if (state.scope && !left && !known) { $("#dn-title").textContent = "單元完成 🎉"; $("#dn-sub").textContent = state.units[state.scope - 1]?.title || ""; }
     show("done");
   }
-  $("#dn-again").onclick = () => startStudy(state.mode);
+  $("#dn-again").onclick = () => startStudy(state.mode, state.scope, state.fromUnits);
   // 範圍都練完了 → 一鍵換到下一段（長度同目前範圍）
   function nextChunk() {
     const p = state.prefs.word;
@@ -682,7 +753,17 @@ function init() {
     if (from > state.cards.size) return null;
     return { on: true, from, to: from + (p.to - p.from) };
   }
-  $("#dn-next").onclick = () => { const nx = nextChunk(); if (!nx) return; savePref("word", nx); startStudy(state.mode); };
+  function nextTarget() {
+    if (state.scope) { const u = state.units.find((x) => x.n === state.scope + 1 && !x.locked); return u ? { unit: u } : null; }
+    const c = nextChunk();
+    return c ? { chunk: c } : null;
+  }
+  $("#dn-next").onclick = () => {
+    const t = nextTarget();
+    if (!t) return;
+    if (t.unit) startStudy("new", t.unit.n, state.fromUnits);
+    else { savePref("word", t.chunk); startStudy(state.mode); }
+  };
   $("#dn-range").onclick = () => openQs();
 
   const toData = (c) => { const { id, ...data } = c; return data; };
@@ -803,7 +884,7 @@ function init() {
       readZh: !!settings.readZh, loop: !!settings.loop, shuffle: !!settings.shuffle, remove: nativeRemove, sleepAt,
     };
     nativeRemove = null;
-    const pool = () => inRange("word", [...state.cards.values()]).filter(inMode)
+    const pool = () => scopeList().filter(inMode)
       .sort((a, b) => (a.createdAt || 0) - (b.createdAt || 0))
       .map((x) => ({ id: x.id, w: x.word || "", n: x.note || "", e: x.example || "", t: x.trans || "" }));
     if (!nativeActive) payload.cards = pool();
@@ -1030,6 +1111,7 @@ function init() {
     $("#qs-readzh").checked = !!settings.readZh;
     $("#qs-shuffle").checked = !!settings.shuffle;
     const p = state.prefs.word;
+    $("#qs-rg-card").hidden = !!state.scope && current !== "home";   // 指定單元學習時，範圍設定不適用
     $("#qs-rg-on").checked = p.on;
     $("#qs-rg-from").value = p.from;
     $("#qs-rg-to").value = p.to ?? "";
