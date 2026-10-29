@@ -14,7 +14,7 @@
   <link rel="manifest" href="manifest.json">
   <link rel="icon" type="image/png" href="icons/icon-192.png">
   <link rel="apple-touch-icon" href="icons/icon-192.png">
-  <link rel="stylesheet" href="style.css?v=29">
+  <link rel="stylesheet" href="style.css?v=31">
 </head>
 <body>
   <!-- icon sprite -->
@@ -75,7 +75,6 @@
         <span class="row-sub"><b id="h-verbs">0</b> 個動詞</span>
       </button>
     </div>
-    <button class="btn" id="h-range" hidden></button>
     <p id="h-empty" class="muted center" hidden></p>
     <button class="btn" id="h-empty-import" hidden>匯入字卡</button>
   </section>
@@ -235,7 +234,7 @@
       <p class="muted" id="dn-sub"></p>
       <button class="btn primary" id="dn-again">再來一輪</button>
       <button class="btn primary" id="dn-next" hidden>下一段</button>
-      <button class="btn" id="dn-range" hidden>調整練習範圍</button>
+      <button class="btn" id="dn-range" hidden>調整複習範圍</button>
       <button class="btn" id="dn-home" data-back>回首頁</button>
     </div>
   </section>
@@ -394,13 +393,15 @@ pragmatic  We need a pragmatic solution.
         <label class="set-row"><span>隨機順序</span><input id="qs-shuffle" class="sw" type="checkbox"></label>
       </div>
       <div class="set-card" id="qs-rg-card">
-        <label class="set-row"><span>只練習指定範圍</span><input id="qs-rg-on" class="sw" type="checkbox"></label>
+        <label class="set-row"><span>只複習指定範圍</span><input id="qs-rg-on" class="sw" type="checkbox"></label>
         <div class="set-row col">
           <div class="rg-fields">
             <label class="field"><span>從第</span><input id="qs-rg-from" type="number" inputmode="numeric" min="1" step="1" placeholder="1"></label>
             <label class="field"><span>到第</span><input id="qs-rg-to" type="number" inputmode="numeric" min="1" step="1"></label>
           </div>
           <p class="muted small" id="qs-rg-hint"></p>
+          <div class="qs-units" id="qs-units" hidden></div>
+          <p class="muted small">序號 = 單字在 words.txt 的順序，不用在檔案裡編號。點單字可看到它的序號。</p>
         </div>
       </div>
       <button type="button" class="btn primary set-test" id="qs-ok">完成</button>
@@ -418,6 +419,6 @@ pragmatic  We need a pragmatic solution.
   </div>
 
   <script src="pwa.js" defer></script>
-  <script type="module" src="app.js?v=32"></script>
+  <script type="module" src="app.js?v=34"></script>
 </body>
 </html>

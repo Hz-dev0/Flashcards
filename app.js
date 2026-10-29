@@ -24,8 +24,18 @@ let current = null;
 // 作法：離開首頁層級時墊一筆歷史紀錄，系統返回只會消耗這一筆，並改為觸發頁面內的返回鈕。
 const TOP_VIEWS = ["setup", "auth", "home"];
 try { if (history.state?.sub) history.replaceState(null, ""); } catch {}
+// 原生 App：由 Capacitor 的 backButton 事件交給 systemBack() 決定（關選單／關浮層／回上一頁，只有在首頁才退出）
+function systemBack() {
+  if (!current || TOP_VIEWS.includes(current)) return false;
+  if ([...document.querySelectorAll(".menu-pop")].some((p) => !p.hidden)) { closeMenus(); return true; }
+  const open = ["#rg-cancel", "#cf-no", "#ed-cancel", "#rt-ok", "#qs-ok"].find((b) => !document.querySelector(b)?.closest(".sheet")?.hidden);
+  if (open) { document.querySelector(open).click(); return true; }
+  const back = $(`#v-${current}`)?.querySelector("[data-back], #vm-back, #bk-back");
+  if (back) back.click(); else show("home");
+  return true;
+}
 window.addEventListener("popstate", () => {
-  if (!current || TOP_VIEWS.includes(current)) return;
+  if (NATIVE || !current || TOP_VIEWS.includes(current)) return;
   const open = ["#rg-cancel", "#cf-no", "#ed-cancel", "#rt-ok", "#qs-ok"].find((b) => !document.querySelector(b)?.closest(".sheet")?.hidden);
   if (open) { try { history.pushState({ sub: true }, ""); } catch {} document.querySelector(open).click(); return; }
   const back = $(`#v-${current}`)?.querySelector("[data-back], #vm-back, #bk-back");
@@ -34,7 +44,9 @@ window.addEventListener("popstate", () => {
 
 function show(name) {
   try {
-    if (!TOP_VIEWS.includes(name)) {
+    if (NATIVE) {
+      // 原生 App 不靠瀏覽器歷史，返回鍵走 backButton 事件
+    } else if (!TOP_VIEWS.includes(name)) {
       if (!history.state?.sub) history.pushState({ sub: true }, "");
     } else if (history.state?.sub) {
       history.back();                  // 用頁面內按鈕回首頁時，把墊的那筆紀錄收掉
@@ -180,6 +192,10 @@ function utter(text, zh = false) {
 // 原生 App（Capacitor）：朗讀改走 Android 系統 TTS，連播交給背景服務
 const NATIVE = !!(window.Capacitor && window.Capacitor.isNativePlatform && window.Capacitor.isNativePlatform());
 const NSpeech = NATIVE ? window.Capacitor.Plugins.Speech : null;
+if (NATIVE) {
+  const AppP = window.Capacitor.Plugins.App;
+  if (AppP) AppP.addListener("backButton", () => { if (!systemBack()) AppP.exitApp(); });
+}
 let nativeActive = false;     // 原生連播服務是否在跑（網頁端的記錄）
 let sleepAt = 0;              // 睡眠模式的停止時間（epoch 毫秒），0 = 沒啟用
 let nativeRemove = null;      // 剛標成「會了」／刪除的卡，下次重啟連播時通知服務從輪次拿掉
@@ -489,7 +505,9 @@ function init() {
   // 首頁的數字、按鈕狀態跟學習時一致：有開練習範圍就只算範圍內的卡
   function counts() {
     let n = 0, k = 0;
-    for (const c of inRange("word", [...state.cards.values()])) (c.status === "known" ? k++ : c.locked || n++);
+    const all = [...state.cards.values()];
+    for (const c of all) if (c.status !== "known" && !c.locked) n++;
+    for (const c of inRange("word", all)) if (c.status === "known") k++;     // 複習數字跟複習範圍一致
     return { n, k };
   }
   const rangeText = (kind, total) => {
@@ -498,9 +516,6 @@ function init() {
   };
   function renderHome() {
     const { n, k } = counts();
-    const rb = $("#h-range");
-    rb.hidden = !(state.prefs.word.on && state.cards.size);
-    rb.textContent = `練習範圍：${rangeText("word", state.cards.size)}（全部 ${state.cards.size} 張）・調整`;
     const cur = state.units.find((u) => u.left > 0);
     const hero = state.units.length > 0;
     $("#h-unit-k").textContent = hero ? (cur ? `繼續學習 ・ 單元 ${cur.n} / ${state.units.length}` : "學習") : "";
@@ -534,7 +549,6 @@ function init() {
   }
   window.addEventListener("online", renderSync);
   window.addEventListener("offline", renderSync);
-  $("#h-range").onclick = () => openQs();
   $("#h-learn").onclick = () => { const cur = state.units.find((u) => u.left > 0); if (cur) startStudy("new", cur.n); else startStudy("new"); };
   $("#h-units").onclick = () => { show("units"); renderUnits(); $("#u-list .cur")?.scrollIntoView({ block: "center" }); };
   // 單元一覽：點單元開始學；已完成的單元點進去是複習；鎖住的提示先完成哪一個
@@ -600,7 +614,8 @@ function init() {
   // 目前學習的範圍：指定單元（scope）優先，否則看「練習範圍」
   function scopeList() {
     const all = [...state.cards.values()];
-    return state.scope ? all.filter((c) => c.unit === state.scope) : inRange("word", all);
+    if (state.scope) return all.filter((c) => c.unit === state.scope);
+    return state.mode === "known" ? inRange("word", all) : all;      // 序號範圍只用在「複習」；學習新字由單元決定
   }
 
   function startStudy(mode, scope = null, fromUnits = false) {
@@ -608,7 +623,7 @@ function init() {
     if (!buildQueue()) {
       show("home"); renderHome();
       const p = state.prefs.word;
-      if (p.on) toast(`第 ${p.from} ～ ${p.to ?? "最後"} 範圍內已經沒有${mode === "known" ? "已會" : "待學"}的字卡`, { label: "調整範圍", fn: () => openQs() });
+      if (p.on && mode === "known" && !scope) toast(`第 ${p.from} ～ ${p.to ?? "最後"} 範圍內沒有已會的字卡`, { label: "調整範圍", fn: () => openQs() });
       else toast("沒有可看的字卡");
       return;
     }
@@ -714,7 +729,7 @@ function init() {
     state.current = c;
     if (!c) return finish();
     renderCard(c);
-    $("#st-progress").textContent = `${state.idx + 1} / ${state.queue.length}` + (state.prefs.word.on ? ` ・ 範圍 ${rangeText("word", state.cards.size).replace(/ /g, "")}` : "");
+    $("#st-progress").textContent = `${state.idx + 1} / ${state.queue.length}` + (state.prefs.word.on && state.mode === "known" && !state.scope ? ` ・ 複習範圍 ${rangeText("word", state.cards.size).replace(/ /g, "")}` : "");
     if (state.scope) $("#st-progress").textContent = `單元 ${state.scope} ・ ${state.idx + 1} / ${state.queue.length}`;
     $("#a-keep").textContent = state.mode === "known" ? "還不熟" : "會了";
     const stage = $("#stage");
@@ -737,9 +752,9 @@ function init() {
     const left = scopeList().some(inMode);   // 這個單元／範圍內還有沒有卡（不是全部）
     $("#dn-again").hidden = !left;
     const nt = nextTarget();
-    $("#dn-next").hidden = left || !nt;
+    $("#dn-next").hidden = !nt || (!!nt.unit && left);
     if (nt) $("#dn-next").textContent = nt.unit ? `下一單元：${nt.unit.title}` : `下一段（第 ${nt.chunk.from} ～ ${Math.min(nt.chunk.to, state.cards.size)}）`;
-    $("#dn-range").hidden = !state.prefs.word.on || !!state.scope;
+    $("#dn-range").hidden = !(known && !state.scope);
     $("#dn-home").textContent = state.fromUnits ? "回單元一覽" : "回首頁";
     if (state.scope && !left && !known) { $("#dn-title").textContent = "單元完成 🎉"; $("#dn-sub").textContent = state.units[state.scope - 1]?.title || ""; }
     show("done");
@@ -748,7 +763,7 @@ function init() {
   // 範圍都練完了 → 一鍵換到下一段（長度同目前範圍）
   function nextChunk() {
     const p = state.prefs.word;
-    if (!p.on || !p.to) return null;
+    if (!p.on || !p.to || state.mode !== "known") return null;
     const from = p.to + 1;
     if (from > state.cards.size) return null;
     return { on: true, from, to: from + (p.to - p.from) };
@@ -792,7 +807,8 @@ function init() {
     } else {
       state.stats.next++;
     }
-    state.idx++;
+    if (kind === "keep" || kind === "del") state.queue.splice(state.idx, 1);   // 標「會了」／刪除：從這一輪消失，總數跟著減少
+    else state.idx++;
     showCard();
   }
   // 左右滑動 = 下一張（不管往哪邊都一樣，順序依「隨機順序」設定）
@@ -1111,7 +1127,7 @@ function init() {
     $("#qs-readzh").checked = !!settings.readZh;
     $("#qs-shuffle").checked = !!settings.shuffle;
     const p = state.prefs.word;
-    $("#qs-rg-card").hidden = !!state.scope && current !== "home";   // 指定單元學習時，範圍設定不適用
+    $("#qs-rg-card").hidden = !(state.mode === "known" && !state.scope);   // 序號範圍只給「複習」用；學習新字看單元
     $("#qs-rg-on").checked = p.on;
     $("#qs-rg-from").value = p.from;
     $("#qs-rg-to").value = p.to ?? "";
@@ -1122,10 +1138,42 @@ function init() {
   function qsHint() {
     const n = state.cards.size, on = $("#qs-rg-on").checked;
     $("#qs-rg-from").disabled = $("#qs-rg-to").disabled = !on;
-    if (!on) { $("#qs-rg-hint").textContent = `目前練習全部，共 ${n} 張。`; return; }
+    renderQsUnits();
+    if (!on) { $("#qs-rg-hint").textContent = `目前複習全部，共 ${n} 張。`; return; }
     const p = qsRead(), hi = p.to == null ? n : Math.min(p.to, n);
-    $("#qs-rg-hint").textContent = `第 ${p.from} ～ ${hi} 張，共 ${Math.max(0, hi - p.from + 1)} 張（全部共 ${n}）。序號 = 文字編輯的編號。`;
+    $("#qs-rg-hint").textContent = `第 ${p.from} ～ ${hi} 張，共 ${Math.max(0, hi - p.from + 1)} 張（全部共 ${n}）。`;
   }
+  // 不用記序號：點單元就把範圍填成那個單元（可多選，涵蓋到最前～最後一個）
+  let qsSpans = [];
+  function renderQsUnits() {
+    const box = $("#qs-units"), sn = serialMap("word"), sp = new Map();
+    for (const c of state.cards.values()) {
+      if (!c.base || !c.unit) continue;
+      const n = sn.get(c.id), s = sp.get(c.unit) || { lo: Infinity, hi: 0 };
+      s.lo = Math.min(s.lo, n); s.hi = Math.max(s.hi, n); sp.set(c.unit, s);
+    }
+    qsSpans = state.units.filter((u) => !u.locked && sp.has(u.n)).map((u) => ({ u, ...sp.get(u.n) }));
+    const on = $("#qs-rg-on").checked, p = qsRead();
+    box.textContent = "";
+    box.hidden = !qsSpans.length;
+    for (const x of qsSpans) {
+      const b = document.createElement("button");
+      b.type = "button"; b.dataset.n = x.u.n; b.textContent = `${x.u.n} ${x.u.title}`; b.title = `第 ${x.lo} ～ ${x.hi} 張`;
+      b.setAttribute("aria-pressed", String(on && x.lo >= p.from && (p.to == null || x.hi <= p.to)));
+      box.append(b);
+    }
+  }
+  $("#qs-units").addEventListener("click", (e) => {
+    const b = e.target.closest("button");
+    if (!b) return;
+    const cur = new Set($$("#qs-units button[aria-pressed=true]").map((x) => +x.dataset.n));
+    const n = +b.dataset.n;
+    if (cur.has(n)) cur.delete(n); else cur.add(n);
+    const sel = qsSpans.filter((x) => cur.has(x.u.n));
+    $("#qs-rg-on").checked = sel.length > 0;
+    if (sel.length) { $("#qs-rg-from").value = Math.min(...sel.map((x) => x.lo)); $("#qs-rg-to").value = Math.max(...sel.map((x) => x.hi)); }
+    qsHint();
+  });
   ["#qs-rg-on", "#qs-rg-from", "#qs-rg-to"].forEach((id) => $(id).addEventListener("input", qsHint));
   // 學習中、首頁（範圍練完時）、完成畫面都能開；只有學習中才需要暫停連播
   function openQs() {
