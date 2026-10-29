@@ -94,6 +94,7 @@ public class SpeechPlugin extends Plugin implements SpeechService.Listener {
         s.shuffle = call.getBoolean("shuffle", false);
         s.autoZh = call.getBoolean("autoZh", true);
         s.lang = call.getString("lang", "en-US");
+        s.sleepAt = call.getData().optLong("sleepAt", 0L);
 
         engine.stop();
         askNotificationPermission();

@@ -50,6 +50,7 @@ public class SpeechService extends Service {
         float rate = 1f;
         boolean readZh = true, loop = false, shuffle = false, autoZh = true;
         String lang = "en-US";
+        long sleepAt = 0;               // 睡眠模式停止時間（epoch 毫秒），0 = 沒啟用
     }
 
     interface Listener {
@@ -89,6 +90,7 @@ public class SpeechService extends Service {
     private int idx = 0;
     private boolean active = false, paused = false, pausedByFocus = false;
     private boolean loop, shuffle, readZh;
+    private long sleepAt = 0;
     private int gen = 0;
 
     private AudioManager am;
@@ -157,6 +159,7 @@ public class SpeechService extends Service {
         loop = s.loop;
         shuffle = s.shuffle;
         readZh = s.readZh;
+        sleepAt = s.sleepAt;
 
         queue = new ArrayList<>();
         for (String id : s.ids) {
@@ -196,13 +199,19 @@ public class SpeechService extends Service {
         if (readZh && !isEmpty(c.n)) parts.add(c.n);
         if (!isEmpty(c.e)) parts.add(c.e);
         if (readZh && !isEmpty(c.t)) parts.add(c.t);
-        if (parts.isEmpty()) { main.postDelayed(this::advance, 300); return; }
+        if (parts.isEmpty()) {
+            main.postDelayed(() -> {
+                if (sleepAt > 0 && System.currentTimeMillis() >= sleepAt) stopSession(true); else advance();
+            }, 300);
+            return;
+        }
 
         final int my = ++gen;
         engine.speak(parts, completed -> {
             if (!completed || my != gen || paused) return;      // 被暫停、跳下一張或重新開始打斷
             main.postDelayed(() -> {
                 if (my != gen || paused || !active) return;
+                if (sleepAt > 0 && System.currentTimeMillis() >= sleepAt) { stopSession(true); return; }   // 睡眠時間到：唸完這張就停
                 if (loop) playCurrent(); else advance();
             }, loop ? 900 : 1200);
         });
