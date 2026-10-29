@@ -51,6 +51,13 @@ export function cyrb53(str, seed = 0) {
 /** 內建字庫的卡片編號：由「單字 + 例句」決定，跟行號、順序無關，所以在 words.txt 中間插行不會讓進度錯位 */
 export const baseCardId = (word, example) => "b" + cyrb53(cardKey(word, example)).toString(36);
 
+/** 單元標題行：「# ===== 1 招聘與求職 =====」或「## 招聘與求職」（行首可有 [編號]）→ 標題；不是標題 → null */
+export function headTitle(line) {
+  const ln = String(line || "").replace(/^[ \t]*\[\d+\][ \t]*/, "");
+  const m = /^\s*#+\s*=+\s*(?:\d+[\s.、．]+)?([^=\s].*?)\s*=+\s*$/.exec(ln) || /^\s*##\s+(.+?)\s*$/.exec(ln);
+  return m ? m[1].trim() : null;
+}
+
 /**
  * 讀字庫文字檔（words.txt 或 App 內的批量匯入共用）：
  * - 行首的 [編號]（從「文字編輯」複製出來的）自動去掉，標題行前面有也可以
@@ -62,8 +69,8 @@ export function parseWordsFile(text) {
   const lines = t.replace(/\r/g, "").split("\n").map((ln) => ln.replace(/^[ \t]*\[\d+\][ \t]*/, ""));
   const heads = [];
   lines.forEach((ln, i) => {
-    const m = /^\s*#+\s*=+\s*(?:\d+[\s.、．]+)?([^=\s].*?)\s*=+\s*$/.exec(ln) || /^\s*##\s+(.+?)\s*$/.exec(ln);
-    if (m) heads.push({ line: i + 1, title: m[1].trim() });
+    const title = headTitle(ln);
+    if (title !== null) heads.push({ line: i + 1, title });
   });
   const res = parseImport(lines.join("\n"));
   let hi = -1;
@@ -145,12 +152,15 @@ export const bulkLine = (c, n) => `[${n}] ${cardToLine(c)}`;
 /** 解析總編輯文字 → [{ id: 編號或 null, word, example, note, trans }]；空行略過，不處理註解 */
 export function parseBulk(text) {
   const out = [];
+  let unit = null;           // 目前所在的單元標題；null = 還沒遇到任何標題（不改動這些卡的單元）
   String(text || "").replace(/\r/g, "").split("\n").forEach((raw) => {
     if (!raw.trim()) return;
+    const h = headTitle(raw);
+    if (h !== null) { unit = h === "未分類" ? "" : h; return; }       // 標題行不是字卡
     const m = /^\s*\[(\d+)\][ \t]*/.exec(raw);
     const rest = m ? raw.slice(m[0].length) : raw;
     const row = parseImport(rest, { comments: false }).rows[0] || { word: "", example: "", note: "", trans: "" };
-    out.push({ id: m ? Number(m[1]) : null, word: row.word, example: row.example, note: row.note, trans: row.trans });
+    out.push({ id: m ? Number(m[1]) : null, word: row.word, example: row.example, note: row.note, trans: row.trans, unit });
   });
   return out;
 }

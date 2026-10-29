@@ -9,7 +9,7 @@ import {
 } from "https://www.gstatic.com/firebasejs/11.0.2/firebase-firestore.js";
 import { firebaseConfig } from "./firebase-config.js?v=9";
 import {
-  parseImport, parseWordsFile, baseCardId, cardKey, shuffle, splitHighlight, bulkLine, diffBulk,
+  parseImport, parseWordsFile, headTitle, baseCardId, cardKey, shuffle, splitHighlight, bulkLine, diffBulk,
   VERB_FIELDS, verbBulkLine, diffVerbBulk, checkVerbAnswer, verbSay, verbAlts, highlightForm, langSegments,
 } from "./lib.js?v=12";
 import { VERB_SEED } from "./verbs-seed.js?v=1";
@@ -22,7 +22,7 @@ let current = null;
 
 // 手機系統返回鍵：在字卡／管理等子頁按返回，回到上一層（首頁）而不是退出 APP。
 // 作法：離開首頁層級時墊一筆歷史紀錄，系統返回只會消耗這一筆，並改為觸發頁面內的返回鈕。
-const APP_VER = "38";      // 設定頁會顯示，用來確認手機上裝的是不是最新版
+const APP_VER = "39";      // 設定頁會顯示，用來確認手機上裝的是不是最新版
 const TOP_VIEWS = ["setup", "auth", "home"];
 try { if (history.state?.sub) history.replaceState(null, ""); } catch {}
 // 原生 App：由 Capacitor 的 backButton 事件交給 systemBack() 決定（關選單／關浮層／回上一頁，只有在首頁才退出）
@@ -1878,9 +1878,23 @@ function init() {
   const bkVerb = () => bk.kind === "verb";
   const bkFields = () => (bkVerb() ? VERB_FIELDS : ["word", "example", "note", "trans"]);
   const bkDirty = () => $("#bk-text").value !== bk.orig;
+  // 字卡文字：標題改變時插一行「# ===== N 單元名稱 =====」，讓編輯器裡看得到單元分組（標題行不算字卡）
+  function bkWordText(list) {
+    const out = [];
+    let cur = null, n = 0;
+    list.forEach((c, i) => {
+      const t = unitTitle(c);
+      if (t && t !== cur) { cur = t; out.push(`# ===== ${++n} ${t} =====`); }
+      else if (!t && cur) { cur = ""; out.push("# ===== 未分類 ====="); }
+      out.push(bulkLine(c, i + 1));
+    });
+    return out.join("\n");
+  }
+  // 這一行在標題底下、而且單元跟現有的不一樣 → 要更新單元（內建字庫的卡單元由 words.txt 決定，不改）
+  const bkRetag = (l) => !bkVerb() && l.card && !l.card.base && !l.card.lib && l.row.unit !== null && l.row.unit !== undefined && (l.row.unit || "") !== (l.card.ut || "");
   const bkRender = (list) => {
     bk.snap = list;
-    bk.orig = list.map((c, i) => (bkVerb() ? verbBulkLine(c, i + 1) : bulkLine(c, i + 1))).join("\n");
+    bk.orig = bkVerb() ? list.map((c, i) => verbBulkLine(c, i + 1)).join("\n") : bkWordText(list);
     $("#bk-text").value = bk.orig;
     $("#bk-count").textContent = `${list.length} ${bkVerb() ? "個" : "張"}`;
     bkSummary();
@@ -1898,7 +1912,8 @@ function init() {
   function bkSummary() {
     const d = bkVerb() ? diffVerbBulk(bk.snap, $("#bk-text").value) : diffBulk(bk.snap, $("#bk-text").value);
     const moved = bkOrderChanged(d);
-    const n = d.updates.length + d.adds.length + d.deletes.length;
+    d.retags = d.lines.filter(bkRetag).length;
+    const n = d.updates.length + d.adds.length + d.deletes.length + d.retags;
     $("#bk-save").disabled = !(n || moved);
     $("#bk-save").textContent = bkDirty() ? "儲存 ●" : "儲存";
     let dup, extra = "";
@@ -1912,7 +1927,7 @@ function init() {
       dup = d.adds.filter((r) => keys.has(cardKey(r.word, r.example))).length;
     }
     $("#bk-sum").textContent = n || moved || extra
-      ? `修改 ${d.updates.length} · 新增 ${d.adds.length}${dup ? `（${dup} 筆與現有重複）` : ""} · 刪除 ${d.deletes.length}${moved ? " · 順序有調整" : ""}${extra}`
+      ? `修改 ${d.updates.length} · 新增 ${d.adds.length}${dup ? `（${dup} 筆與現有重複）` : ""} · 刪除 ${d.deletes.length}${d.retags ? ` · 單元調整 ${d.retags}` : ""}${moved ? " · 順序有調整" : ""}${extra}`
       : "";
     return d;
   }
@@ -2011,7 +2026,7 @@ function init() {
     const d = bkSummary();
     const t = bkTimes(d);
     const moved = bkOrderChanged(d);
-    if (!(d.updates.length || d.adds.length || d.deletes.length || moved)) return;
+    if (!(d.updates.length || d.adds.length || d.deletes.length || d.retags || moved)) return;
     if (d.deletes.length && !confirm(`將刪除 ${d.deletes.length} 張字卡，確定嗎？（儲存後可按「復原」）`)) return;
     const ops = [];
     const baseEdits = {}, baseHidden = {};
@@ -2030,13 +2045,14 @@ function init() {
           return;
         }
         if (!l.card.lib && (l.card.createdAt || 0) !== t[i]) patch.createdAt = t[i];
+        if (bkRetag(l)) patch.ut = l.row.unit || "";
         if (Object.keys(patch).length) ops.push((b) => b.update(cardRef(l.card.id), patch));
-        next.push({ ...l.card, ...vals, createdAt: t[i] });
+        next.push({ ...l.card, ...vals, createdAt: t[i], ...(bkRetag(l) ? { ut: l.row.unit || "" } : {}) });
       } else {
         const ref = doc(cardsCol());
         const data = bkVerb()
           ? { ...vals, type: "verb", createdAt: t[i] }
-          : { ...vals, status: "new", createdAt: t[i] };
+          : { ...vals, status: "new", createdAt: t[i], ...(l.row.unit ? { ut: l.row.unit } : {}) };
         ops.push((b) => b.set(ref, data));
         next.push({ id: ref.id, ...data });
       }
@@ -2054,7 +2070,7 @@ function init() {
     // 不 await：離線時也立刻生效，連線後自動同步
     Promise.all(jobs).catch(syncError);
     bkRender(next);   // 留在編輯器，並替新增的行補上編號
-    const msg = `已儲存：修改 ${d.updates.length}、新增 ${d.adds.length}、刪除 ${d.deletes.length}`;
+    const msg = `已儲存：修改 ${d.updates.length}、新增 ${d.adds.length}、刪除 ${d.deletes.length}` + (d.retags ? `、單元調整 ${d.retags}` : "");
     if (backup.length) {
       toast(msg, { label: "復原刪除", fn: () => {
         const b = writeBatch(db);
@@ -2084,6 +2100,9 @@ function init() {
     $("#s-lib").textContent = `版本 ${APP_VER}　` + (state.base.size
       ? `內建字庫 ${state.base.size} 張・${state.cats.length} 個分類・${state.units.length} 個單元${shadow ? `（其中 ${shadow} 張的進度還在雲端舊字卡裡，可用下方按鈕整理）` : ""}。`
       : `沒有內建字庫（words.txt）${tagged ? `；匯入的字卡中有 ${tagged} 張標了單元` : ""}，目前 ${state.units.length} 個單元。`);
+    const junk = junkCards().length;
+    $("#s-clean").hidden = !junk;
+    $("#s-clean").textContent = `刪除 ${junk} 張誤匯入的標題卡`;
     const dups = migratable().length;
     $("#s-migrate").hidden = !dups;
     $("#s-migrate").textContent = `把 ${dups} 張雲端字卡的進度收進內建字庫`;
@@ -2099,6 +2118,21 @@ function init() {
   };
   $("#s-auto").onchange = (e) => { settings.autoplay = e.target.checked; saveSettings(); };
   $("#s-shuffle").onchange = (e) => { settings.shuffle = e.target.checked; saveSettings(); };
+  // 以前把「# ===== 1 招聘與求職 =====」貼進編輯器，標題會被當成字卡：單字欄以 # 開頭的就是
+  const junkCards = () => [...state.cloud.values()].filter((c) => /^\s*#/.test(c.word || ""));
+  $("#s-clean").onclick = () => {
+    const list = junkCards();
+    if (!list.length) return;
+    const sample = list.slice(0, 3).map((c) => c.word).join("\n");
+    if (!confirm(`將刪除 ${list.length} 張單字以 # 開頭的字卡（應該是被當成字卡的標題）：\n${sample}${list.length > 3 ? "\n…" : ""}\n\n確定嗎？`)) return;
+    for (let i = 0; i < list.length; i += 400) {
+      const batch = writeBatch(db);
+      list.slice(i, i + 400).forEach((c) => batch.delete(cardRef(c.id)));
+      batch.commit().catch(syncError);
+    }
+    toast(`已刪除 ${list.length} 張`);
+    setTimeout(() => { if (current === "settings") fillSettings(); }, 500);
+  };
   $("#s-unit").onchange = (e) => saveUnit(+e.target.value || 0);
   // 雲端裡跟內建字庫「單字＋例句」相同的舊字卡
   const migratable = () => [...state.cloud.values()].filter((c) => state.baseKeys.has(cardKey(c.word, c.example)));
