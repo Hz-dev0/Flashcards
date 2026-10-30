@@ -22,7 +22,7 @@ let current = null;
 
 // 手機系統返回鍵：在字卡／管理等子頁按返回，回到上一層（首頁）而不是退出 APP。
 // 作法：離開首頁層級時墊一筆歷史紀錄，系統返回只會消耗這一筆，並改為觸發頁面內的返回鈕。
-const APP_VER = "40";      // 設定頁會顯示，用來確認手機上裝的是不是最新版
+const APP_VER = "41";      // 設定頁會顯示，用來確認手機上裝的是不是最新版
 const TOP_VIEWS = ["setup", "auth", "home"];
 try { if (history.state?.sub) history.replaceState(null, ""); } catch {}
 // 原生 App：由 Capacitor 的 backButton 事件交給 systemBack() 決定（關選單／關浮層／回上一頁，只有在首頁才退出）
@@ -731,7 +731,11 @@ function init() {
     const left = sleepAt - Date.now();
     el.textContent = left <= 0 ? "🌙 唸完這張就停止" : `🌙 ${Math.floor(left / 60000)}:${String(Math.floor(left / 1000) % 60).padStart(2, "0")} 後停止`;
   }
-  setInterval(renderSleepPill, 1000);
+  // 保險：原生背景服務在睡眠時間到後沒有自己停下來（例如 App 裡的原生部分還是舊版），最多再等 30 秒就強制停止
+  function sleepWatch() {
+    if (NATIVE && nativeActive && sleepAt && Date.now() > sleepAt + 30000) sleepStop();
+  }
+  setInterval(() => { renderSleepPill(); sleepWatch(); }, 1000);
   $("#st-sleep").onclick = () => openQs();
   function sleepStop() {
     sleepAt = 0;
@@ -898,6 +902,7 @@ function init() {
     b.dataset.mode = m;
     b.dataset.on = m === "off" ? "0" : "1";
     $("#st-mode-txt").textContent = MODE_TXT[m];
+    $$("#st-mode-pop .mi").forEach((x) => { x.dataset.on = x.dataset.mode === m ? "1" : "0"; });
   }
   /* ---------------- 原生 App：連播交給背景服務（螢幕關掉也繼續唸） ---------------- */
   // 連播時整個播放流程（單字 → 備註 → 英文例句 → 中文例句 → 下一張）由 Android 前景服務執行，
@@ -911,6 +916,7 @@ function init() {
   }
   function onNativeCard(e) {
     if (!settings.autoNext || current !== "study" || editing || !e) return;
+    if (sleepAt && Date.now() >= sleepAt) { sleepStop(); return; }   // 時間到了還換新卡 → 停止
     if (e.ids && e.ids.length) state.queue = e.ids.slice();      // 服務重新排了一輪
     const i = state.queue.indexOf(e.id);
     if (i < 0) return;
@@ -958,16 +964,18 @@ function init() {
     });
   }
 
-  $("#st-mode").onclick = () => {
-    const m = curMode();
-    settings.autoNext = m === "off" ? true : m === "next";
-    settings.loop = m === "next";
+  // 點「連播」展開選單，直接選：連播／單字循環／關閉（不用再一路循環切過去）
+  $$("#st-mode-pop .mi").forEach((b) => b.onclick = () => setMode(b.dataset.mode));
+  function setMode(m) {
+    if (m === curMode()) { if (settings.autoNext && state.current) playCard(); return; }   // 選單開啟時暫停了，選回同一個模式就接著播
+    settings.autoNext = m !== "off";
+    settings.loop = m === "loop";
     saveSettings();
     renderMode();
     updateLock();
     if (settings.autoNext) playCard(); else { sleepAt = 0; clearAdv(); if (NATIVE) stopSpeech(); }
     renderSleepPill();
-  };
+  }
 
   /* ---------------- 練習範圍（依序號；設定存雲端） ---------------- */
   // 序號 = 該類全部卡片依建立順序的第幾張，跟「文字編輯」裡的編號一致
@@ -2119,7 +2127,6 @@ function init() {
     $("#s-rate-out").textContent = settings.rate.toFixed(2) + "×";
     $("#s-auto").checked = settings.autoplay;
     $("#s-readzh").checked = settings.readZh;
-    $("#s-sleep").value = String(settings.sleepMin || 0);
     $("#s-shuffle").checked = settings.shuffle;
     $("#s-fx").checked = settings.fx;
     $("#s-unit").value = String(state.unit);
@@ -2138,7 +2145,6 @@ function init() {
   }
   $("#s-lang").onchange = (e) => { settings.lang = e.target.value; saveSettings(); };
   $("#s-readzh").onchange = (e) => { settings.readZh = e.target.checked; saveSettings(); };
-  $("#s-sleep").onchange = (e) => { settings.sleepMin = +e.target.value || 0; saveSettings(); applySleep(); };
   $("#s-rate").oninput = (e) => {
     settings.rate = parseFloat(e.target.value);
     $("#s-rate-out").textContent = settings.rate.toFixed(2) + "×";

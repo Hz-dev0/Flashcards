@@ -95,7 +95,14 @@
       <button class="icon" data-back aria-label="返回"><svg class="ic"><use href="#i-back"/></svg></button>
       <span id="st-progress" class="muted"></span>
       <div class="bar-r vq-tools">
-        <button type="button" class="chip" id="st-mode" data-on="0" title="點擊切換：關 → 連播 → 單字循環；長按：快速設定" aria-label="播放模式"><span id="st-mode-txt">連播</span></button>
+        <div class="menu">
+          <button type="button" class="chip" id="st-mode" data-menu data-on="0" aria-haspopup="menu" aria-expanded="false" title="點一下選播放模式；長按：快速設定" aria-label="播放模式"><span id="st-mode-txt">連播</span></button>
+          <div class="menu-pop" id="st-mode-pop" role="menu" hidden>
+            <button type="button" class="mi" role="menuitem" data-mode="next">連播<span class="mi-tag">使用中</span></button>
+            <button type="button" class="mi" role="menuitem" data-mode="loop">單字循環<span class="mi-tag">使用中</span></button>
+            <button type="button" class="mi" role="menuitem" data-mode="off">關閉<span class="mi-tag">使用中</span></button>
+          </div>
+        </div>
         <div class="menu">
           <button type="button" class="icon" data-menu aria-haspopup="menu" aria-expanded="false" aria-label="更多"><svg class="ic"><use href="#i-more"/></svg></button>
           <div class="menu-pop" role="menu" hidden>
@@ -279,16 +286,6 @@ pragmatic  We need a pragmatic solution.
       </div>
       <label class="set-row"><span>換到新卡時自動朗讀</span><input id="s-auto" class="sw" type="checkbox"></label>
       <label class="set-row"><span>朗讀時唸出中文<small>單字 → 備註 → 英文例句 → 中文例句<br>不勾則只唸單字、英文例句</small></span><input id="s-readzh" class="sw" type="checkbox"></label>
-      <label class="set-row"><span>睡眠模式<small>連播多久後自動停止（唸完當下那張才停）</small></span>
-        <select id="s-sleep">
-          <option value="0">關閉</option>
-          <option value="15">15 分鐘</option>
-          <option value="30">30 分鐘</option>
-          <option value="45">45 分鐘</option>
-          <option value="60">60 分鐘</option>
-          <option value="90">90 分鐘</option>
-          <option value="120">120 分鐘</option>
-        </select></label>
     </div>
     <button class="btn set-test" id="s-test">試聽</button>
 
@@ -435,6 +432,6 @@ pragmatic  We need a pragmatic solution.
   </div>
 
   <script src="pwa.js" defer></script>
-  <script type="module" src="app.js?v=40"></script>
+  <script type="module" src="app.js?v=41"></script>
 </body>
 </html>
