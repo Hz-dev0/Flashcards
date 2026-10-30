@@ -423,3 +423,11 @@ textarea.bulk { min-height: 60vh; width: 100%; font-family: ui-monospace, "Casca
 /* 睡眠模式倒數 */
 .sleep-pill { align-self: center; height: 30px; margin: 0 auto; padding: 0 14px; border-radius: 15px; border: 1px solid var(--line); background: none; color: var(--muted); font: inherit; font-size: 13px; font-variant-numeric: tabular-nums; cursor: pointer; }
 .sleep-pill[hidden] { display: none; }
+
+/* 並排的泡泡選單（連播模式）：點按鈕後在下方橫向展開 */
+.menu-pop.bubble { flex-direction: row; gap: 6px; min-width: 0; padding: 6px; border-radius: 24px; top: calc(100% + 10px); }
+.menu-pop.bubble::before { content: ""; position: absolute; top: -6px; right: 22px; width: 10px; height: 10px; background: var(--bg); border-left: 1px solid var(--line); border-top: 1px solid var(--line); transform: rotate(45deg); }
+.menu-pop.bubble .mi { width: auto; height: 36px; padding: 0 16px; border-radius: 18px; justify-content: center; font-size: 14px; }
+.menu-pop.bubble .mi[data-on="1"] { background: var(--accent); color: var(--accent-fg); }
+.menu-pop.bubble .mi[data-on="1"]:hover { background: var(--accent); }
+#vq-auto, #vq-mode { -webkit-touch-callout: none; user-select: none; }

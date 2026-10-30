@@ -22,7 +22,7 @@ let current = null;
 
 // 手機系統返回鍵：在字卡／管理等子頁按返回，回到上一層（首頁）而不是退出 APP。
 // 作法：離開首頁層級時墊一筆歷史紀錄，系統返回只會消耗這一筆，並改為觸發頁面內的返回鈕。
-const APP_VER = "41";      // 設定頁會顯示，用來確認手機上裝的是不是最新版
+const APP_VER = "42";      // 設定頁會顯示，用來確認手機上裝的是不是最新版
 const TOP_VIEWS = ["setup", "auth", "home"];
 try { if (history.state?.sub) history.replaceState(null, ""); } catch {}
 // 原生 App：由 Capacitor 的 backButton 事件交給 systemBack() 決定（關選單／關浮層／回上一頁，只有在首頁才退出）
@@ -995,9 +995,7 @@ function init() {
     if (state.uid) setDoc(prefsRef(), { type: "prefs", [kind]: val }, { merge: true }).catch(syncError);
     renderGears();
   }
-  function renderGears() {
-    $("#vq-gear").dataset.on = state.prefs.verb.on ? "1" : "0";
-  }
+  function renderGears() {}      // 動詞練習範圍改放在長按連播（或純看／測驗）鍵裡，沒有選單項目需要更新
 
   // 各種浮層（範圍／刪除確認／編輯／語速）開著時，不要讓背景的連播或快捷鍵繼續動
   const sheetOpen = () => ["#rg", "#cf", "#ed", "#rt", "#qs"].some((id) => !$(id).hidden);
@@ -1046,7 +1044,17 @@ function init() {
     rgEl.hidden = true;
     resumeAfterSheet();
   }
-  $("#vq-gear").onclick = () => openRange("verb");
+  // 長按：動詞三態的練習範圍（連播鍵只在「純看」才顯示，所以「純看／測驗」鍵也能長按）
+  function bindLongPress(btn, fn) {
+    let t = 0, fired = false;
+    const cancel = () => { clearTimeout(t); t = 0; };
+    btn.addEventListener("pointerdown", (e) => { if (e.pointerType === "mouse") return; fired = false; cancel(); t = setTimeout(() => { fired = true; fn(); }, 500); });
+    ["pointerup", "pointerleave", "pointercancel"].forEach((ev) => btn.addEventListener(ev, cancel));
+    btn.addEventListener("contextmenu", (e) => { e.preventDefault(); cancel(); fired = true; fn(); });
+    btn.addEventListener("click", (e) => { if (fired) { e.stopImmediatePropagation(); e.preventDefault(); fired = false; } }, true);
+  }
+  bindLongPress($("#vq-auto"), () => openRange("verb"));
+  bindLongPress($("#vq-mode"), () => openRange("verb"));
   ["#rg-on", "#rg-from", "#rg-to"].forEach((id) => $(id).addEventListener("input", rgHint));
   $("#rg-cancel").onclick = closeRange;
   rgEl.addEventListener("pointerdown", (e) => { if (e.target === rgEl) closeRange(); });
@@ -1329,10 +1337,10 @@ function init() {
     $("#vq-mode-txt").textContent = to;
     $("#vq-mode").title = $("#vq-mode").ariaLabel = `切換到${to}模式`;
     const a = $("#vq-auto");
-    a.hidden = !vqLook();
+    $("#vq-auto-wrap").hidden = !vqLook();
     a.dataset.on = settings.vauto ? "1" : "0";
-    a.setAttribute("aria-pressed", String(!!settings.vauto));
     a.textContent = "連播";
+    $$("#vq-auto-pop .mi").forEach((x) => { x.dataset.on = (x.dataset.v === "1") === !!settings.vauto ? "1" : "0"; });
     $("#vq-del").disabled = !(vq.card && vq.done);
     updateLock();
   }
@@ -1579,11 +1587,12 @@ function init() {
     saveSettings(); vqRenderMode();
     if (vqCards().length) vqNext();
   };
-  $("#vq-auto").onclick = () => {
-    settings.vauto = !settings.vauto;
+  // 點連播展開並排的泡泡：連播／關閉
+  $$("#vq-auto-pop .mi").forEach((b) => b.onclick = () => {
+    settings.vauto = b.dataset.v === "1";
     saveSettings(); vqRenderMode();
     if (settings.vauto && vq.done && vq.card) speakExamples(); else clearTimeout(vq.timer);
-  };
+  });
   document.addEventListener("keydown", (e) => {
     if (current === "verb" && vqLook() && !sheetOpen() && e.key === "ArrowRight" && !/^(INPUT|TEXTAREA|SELECT)$/.test(e.target?.tagName || "")) vqNext();
   });
